@@ -85,6 +85,41 @@ main {
 
 #canvas { display: block; width: 100%; height: 100%; }
 
+/* 組み込み先の画面サイズを示す枠。位置の当たりを付けるためのものなので操作は拾わない */
+#frame-guide {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, .34);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .45);
+  pointer-events: none;
+}
+#frame-guide.hidden { display: none; }
+
+/* 中心 (パーティクルの発生位置) の目印 */
+#frame-guide::before,
+#frame-guide::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgba(255, 255, 255, .28);
+}
+#frame-guide::before { width: 13px; height: 1px; transform: translate(-50%, -50%); }
+#frame-guide::after { width: 1px; height: 13px; transform: translate(-50%, -50%); }
+
+#frame-guide .frame-label {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 #stats {
   position: absolute;
   left: 12px;
@@ -274,6 +309,16 @@ header .divider {
   align-content: flex-start;
 }
 .shape-presets button { padding: 3px 8px; font-size: 11px; }
+
+.frame-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.frame-presets button { padding: 3px 8px; font-size: 11px; }
+
+.row-toggle .label { margin-bottom: 0; }
+.row-toggle input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer; }
 
 .shape-editor > button { width: 100%; }
 

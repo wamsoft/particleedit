@@ -8,11 +8,11 @@ const GROUPS = [
   {
     title: "エミッター",
     params: [
-      { key: "emitRate",          label: "1秒あたりの発生数", min: 1,    max: 300,  step: 1,     value: 40 },
+      { key: "emitRate",          label: "1秒あたりの発生数", min: 1,    max: 400,  step: 1,     value: 80 },
       { key: "spawnRangeX",       label: "発生位置のばらつき X", min: 0, max: 600,  step: 1,     value: 0 },
       { key: "spawnRangeY",       label: "発生位置のばらつき Y", min: 0, max: 600,  step: 1,     value: 0 },
-      { key: "speed",             label: "初速",             min: 0,    max: 20,   step: 0.05,  value: 3 },
-      { key: "speedVariance",     label: "初速のばらつき",     min: 0,    max: 20,   step: 0.05,  value: 1.5 },
+      { key: "speed",             label: "初速",             min: 0,    max: 30,   step: 0.05,  value: 5 },
+      { key: "speedVariance",     label: "初速のばらつき",     min: 0,    max: 30,   step: 0.05,  value: 3 },
       { key: "direction",         label: "方向 (度)",         min: 0,    max: 360,  step: 1,     value: 90 },
       { key: "directionVariance", label: "方向の広がり (度)",  min: 0,    max: 360,  step: 1,     value: 40 },
       { key: "gravity",           label: "重力",             min: 0,    max: 1,    step: 0.005, value: 0.06 },
@@ -25,10 +25,10 @@ const GROUPS = [
     params: [
       { key: "life",              label: "寿命 (フレーム)",    min: 1,   max: 300, step: 1, value: 70 },
       { key: "lifeVariance",      label: "寿命のばらつき",      min: 0,   max: 300, step: 1, value: 30 },
-      { key: "startSize",         label: "開始サイズ",         min: 0,   max: 300, step: 1, value: 28 },
-      { key: "startSizeVariance", label: "開始サイズのばらつき", min: 0,  max: 300, step: 1, value: 12 },
-      { key: "endSize",           label: "終了サイズ",         min: 0,   max: 300, step: 1, value: 0 },
-      { key: "endSizeVariance",   label: "終了サイズのばらつき", min: 0,  max: 300, step: 1, value: 0 },
+      { key: "startSize",         label: "開始サイズ",         min: 0,   max: 600, step: 1, value: 64 },
+      { key: "startSizeVariance", label: "開始サイズのばらつき", min: 0,  max: 600, step: 1, value: 26 },
+      { key: "endSize",           label: "終了サイズ",         min: 0,   max: 600, step: 1, value: 0 },
+      { key: "endSizeVariance",   label: "終了サイズのばらつき", min: 0,  max: 600, step: 1, value: 0 },
     ],
   },
   {
@@ -68,6 +68,10 @@ const GROUPS = [
     title: "プレビュー (エフェクトには含まれない)",
     params: [
       { key: "backgroundColor", label: "背景色", type: "color", value: "#101014" },
+      { key: "showFrame", label: "画面サイズの枠を表示", type: "toggle", value: true },
+      { type: "frame-presets" },
+      { key: "frameWidth",  label: "画面の幅",   min: 320, max: 2560, step: 16, value: 1280 },
+      { key: "frameHeight", label: "画面の高さ", min: 240, max: 1600, step: 16, value: 720 },
     ],
   },
 ];
@@ -87,6 +91,9 @@ for (const g of GROUPS) for (const p of g.params) if (p.key) setPath(spec, p.key
 
 /// キー -> UI へ値を書き戻す関数。プロジェクトやテンプレートの読み込み時に使う。
 const controls = new Map();
+
+/// エフェクトデータに影響しない (= 作り直しが要らない) パラメータ
+const EDITOR_ONLY_KEYS = new Set(["backgroundColor", "showFrame", "frameWidth", "frameHeight"]);
 
 // ---------------------------------------------------------------- UI 構築
 
@@ -116,6 +123,10 @@ function buildPanel() {
         panel.appendChild(buildShapeEditor());
         continue;
       }
+      if (p.type === "frame-presets") {
+        panel.appendChild(buildFramePresets());
+        continue;
+      }
 
       const row = document.createElement("div");
       row.className = "row";
@@ -129,6 +140,21 @@ function buildPanel() {
       value.className = "value";
       label.append(name, value);
       row.appendChild(label);
+
+      if (p.type === "toggle") {
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = !!p.value;
+        input.addEventListener("input", () => {
+          setPath(spec, p.key, input.checked);
+          // 枠の表示切り替えはエフェクトの作り直しを伴わない
+        });
+        controls.set(p.key, (v) => { input.checked = !!v; });
+        label.appendChild(input);
+        row.classList.add("row-toggle");
+        panel.appendChild(row);
+        continue;
+      }
 
       if (p.type === "select" || p.type === "color") {
         const input = p.type === "color"
@@ -162,7 +188,7 @@ function buildPanel() {
           setPath(spec, p.key, +input.value);
           show();
           if (p.key.startsWith("shape.")) onShapeEdited();
-          requestRebuild();
+          if (!EDITOR_ONLY_KEYS.has(p.key)) requestRebuild();
         });
         controls.set(p.key, (v) => { input.value = v; show(); });
         row.appendChild(input);
@@ -190,6 +216,59 @@ function syncControls() {
   }
   updateShapePreview();
   updateShapeRowsEnabled();
+}
+
+// ---------------------------------------------------------------- 画面サイズの枠
+// 吉里吉里などに組み込んだときの大きさ・位置の当たりを付けるための目安。
+// 枠が収まるようにプレビュー全体を縮小して表示する。
+
+const FRAME_PRESETS = [
+  ["1280 × 720", 1280, 720],
+  ["1920 × 1080", 1920, 1080],
+  ["1024 × 768", 1024, 768],
+  ["800 × 600", 800, 600],
+  ["640 × 480", 640, 480],
+];
+
+function buildFramePresets() {
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const buttons = document.createElement("div");
+  buttons.className = "frame-presets";
+  for (const [label, width, height] of FRAME_PRESETS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      spec.frameWidth = width;
+      spec.frameHeight = height;
+      spec.showFrame = true;
+      syncControls();
+    });
+    buttons.appendChild(button);
+  }
+
+  row.appendChild(buttons);
+  return row;
+}
+
+const frameGuide = document.getElementById("frame-guide");
+const frameLabel = frameGuide.querySelector(".frame-label");
+
+/// 枠がプレビュー領域に収まる倍率。枠を出していないときは等倍。
+function previewZoom(w, h) {
+  if (!spec.showFrame) return 1;
+  return Math.min(1, Math.min(w / spec.frameWidth, h / spec.frameHeight) * 0.92);
+}
+
+function updateFrameGuide(zoom) {
+  frameGuide.classList.toggle("hidden", !spec.showFrame);
+  if (!spec.showFrame) return;
+
+  frameGuide.style.width = `${spec.frameWidth * zoom}px`;
+  frameGuide.style.height = `${spec.frameHeight * zoom}px`;
+  frameLabel.textContent = `${spec.frameWidth} × ${spec.frameHeight}  (${Math.round(zoom * 100)}%)`;
 }
 
 // ---------------------------------------------------------------- 形状エディタ
@@ -530,11 +609,14 @@ function clearToBackground() {
 /// 1 フレーム分の更新と描画。
 function step(w, h) {
   clearToBackground();
-  // 1 ワールド単位 = 1 CSS ピクセルになるように正射影を張る
-  context.setProjectionOrthographic(w, h, 1, 4000);
+  // 等倍なら 1 ワールド単位 = 1 CSS ピクセル。
+  // 枠を出しているときは、枠が収まるぶんだけ視野を広げる (= 縮小表示)。
+  const zoom = previewZoom(w, h);
+  context.setProjectionOrthographic(w / zoom, h / zoom, 1, 4000);
   context.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
   context.update(1.0);
   context.draw();
+  return zoom;
 }
 
 function frame() {
@@ -542,7 +624,8 @@ function frame() {
   gl.viewport(0, 0, canvas.width, canvas.height);
 
   if (context) {
-    step(w, h);
+    const zoom = step(w, h);
+    updateFrameGuide(zoom);
     // 空き枠から逆算した、いま生きているインスタンス数
     statsEl.textContent = `particles: ${INSTANCE_MAX - context.getRestInstancesCount()}`;
   }
@@ -712,6 +795,7 @@ function renderAndMeasure(frames) {
   const { w, h } = resize();
   gl.viewport(0, 0, canvas.width, canvas.height);
   for (let i = 0; i < frames; i++) step(w, h);
+  updateFrameGuide(previewZoom(w, h));
 
   const pixels = new Uint8Array(canvas.width * canvas.height * 4);
   gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);

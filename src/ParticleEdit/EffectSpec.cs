@@ -11,7 +11,7 @@ public sealed class EffectSpec
 {
 	// --- エミッター ---
 	/// <summary>1 秒あたりの発生数</summary>
-	public float EmitRate { get; set; } = 30f;
+	public float EmitRate { get; set; } = 80f;
 
 	/// <summary>発生位置のばらつき (px)。矩形分布。</summary>
 	public float SpawnRangeX { get; set; } = 0f;
@@ -38,8 +38,8 @@ public sealed class EffectSpec
 	public int LifeVariance { get; set; } = 20;
 
 	/// <summary>大きさ (px)。生存中に開始値から終了値へ補間される。</summary>
-	public float StartSize { get; set; } = 24f;
-	public float StartSizeVariance { get; set; } = 8f;
+	public float StartSize { get; set; } = 64f;
+	public float StartSizeVariance { get; set; } = 26f;
 	public float EndSize { get; set; } = 0f;
 	public float EndSizeVariance { get; set; } = 0f;
 
@@ -66,6 +66,12 @@ public sealed class EffectSpec
 	public ShapeSpec Shape { get; set; } = new();
 
 	// --- エディタ専用 (エフェクトデータには入らない) ---
-	[JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+	// プロジェクトには保存されるが、.efk / .efkefc には一切影響しない。
+
 	public string BackgroundColor { get; set; } = "#101014";
+
+	/// <summary>組み込み先の画面サイズ。プレビューに枠として重ねて、大きさの当たりを付ける。</summary>
+	public int FrameWidth { get; set; } = 1280;
+	public int FrameHeight { get; set; } = 720;
+	public bool ShowFrame { get; set; } = true;
 }
