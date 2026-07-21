@@ -6,21 +6,52 @@ builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 var app = builder.Build();
 
 EffectBuilder.Initialize(Path.Combine(AppContext.BaseDirectory, "work"));
+ImageStore.Initialize(Path.Combine(app.Environment.ContentRootPath, "images"));
 var projects = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "projects"));
 var userTemplates = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "templates"));
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// 組み込みテクスチャ。
 // エフェクトのバイナリには "Texture/xxx.png" という相対パスが埋まっており、
 // effekseer.js の既定のリソースローダーがページ基準で取りに来るので、そのパスで配る。
+// ファイル名は形の内容から決まるので、形を変えれば URL も変わる (キャッシュ対策)。
 app.MapGet("/Texture/{name}.png", (string name) =>
-	ShapeTextures.Names.Contains(name)
-		? Results.Bytes(ShapeTextures.GetPng(name), "image/png")
-		: Results.NotFound());
+{
+	var bytes = EffectBuilder.ReadTexture(name + ".png");
+	return bytes == null ? Results.NotFound() : Results.Bytes(bytes, "image/png");
+});
 
-app.MapGet("/api/shapes", () => ShapeTextures.Names);
+// 形のプリセット一覧 (UI のボタン用)
+app.MapGet("/api/shapes", () =>
+	ShapeRenderer.Presets.Select(p => new { name = p.Name, shape = p.Shape }));
+
+// 形だけのプレビュー画像。形状エディタの見本表示に使う。
+app.MapPost("/api/shape.png", (ShapeSpec shape) =>
+	Results.Bytes(ShapeRenderer.GetPng(shape), "image/png"));
+
+// ---------------------------------------------------------------- 画像の取り込み
+// ブラウザ側で 2 の冪サイズへ整えた PNG が送られてくる前提。
+// ID は内容のハッシュなので、同じ画像を何度入れても増えない。
+
+app.MapPost("/api/images", async (HttpRequest request) =>
+{
+	using var ms = new MemoryStream();
+	await request.Body.CopyToAsync(ms);
+	var bytes = ms.ToArray();
+
+	if (bytes.Length < 8 || bytes[0] != 0x89 || bytes[1] != 'P' || bytes[2] != 'N' || bytes[3] != 'G')
+		return Results.BadRequest("PNG ではありません");
+
+	var id = ImageStore.Add(bytes);
+	return Results.Ok(new { id });
+});
+
+app.MapGet("/api/images/{id}.png", (string id) =>
+{
+	var bytes = ShapeRenderer.GetImage(id);
+	return bytes == null ? Results.NotFound() : Results.Bytes(bytes, "image/png");
+});
 
 app.MapPost("/api/debug", (EffectSpec spec) => Results.Text(EffectBuilder.Describe(spec)));
 
@@ -104,7 +135,6 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 {
 	var baseName = ProjectStore.IsValidName(name ?? "") ? name! : "effect";
 	var result = EffectBuilder.Build(spec);
-	var shape = ShapeTextures.Resolve(spec.Shape);
 
 	var (effectEntry, effectBytes, fileName) = format switch
 	{
@@ -123,7 +153,7 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 	using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
 	{
 		AddEntry(zip, effectEntry, effectBytes!);
-		AddEntry(zip, $"Texture/{shape}.png", ShapeTextures.GetPng(shape));
+		AddEntry(zip, result.TextureRelativePath, ShapeRenderer.GetPng(spec.Shape));
 	}
 
 	return Results.Bytes(ms.ToArray(), "application/zip", fileName);

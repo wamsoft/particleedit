@@ -247,6 +247,45 @@ header .divider {
 }
 .card .remove:hover { background: #b4423a; border-color: transparent; color: #fff; }
 
+/* ---- 形状エディタ ---- */
+
+.shape-editor { padding-top: 8px; padding-bottom: 10px; }
+
+.shape-top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.shape-preview {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #000 center/contain no-repeat;
+}
+
+.shape-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-content: flex-start;
+}
+.shape-presets button { padding: 3px 8px; font-size: 11px; }
+
+.shape-editor > button { width: 100%; }
+
+.shape-note {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.row.disabled { opacity: .38; }
+
 input[type=color] {
   width: 100%;
   height: 26px;

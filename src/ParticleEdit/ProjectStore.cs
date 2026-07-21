@@ -65,9 +65,10 @@ public sealed class ProjectStore
 		{
 			WriteEntry(zip, "project.json", JsonSerializer.SerializeToUtf8Bytes(document, Json));
 
-			// 使っているテクスチャを同梱してプロジェクト単体で完結させる
-			var shape = ShapeTextures.Resolve(spec.Shape);
-			WriteEntry(zip, $"Texture/{shape}.png", ShapeTextures.GetPng(shape));
+			// 使っているテクスチャを同梱してプロジェクト単体で完結させる。
+			// 取り込んだ画像を使っている場合、これが無いと別環境で開けない。
+			var shape = spec.Shape ?? new ShapeSpec();
+			WriteEntry(zip, "Texture/" + ShapeRenderer.FileName(shape), ShapeRenderer.GetPng(shape));
 		}
 
 		// 書き込み中に落ちても既存を壊さないよう、一時ファイル経由で差し替える
@@ -86,8 +87,28 @@ public sealed class ProjectStore
 		var entry = zip.GetEntry("project.json");
 		if (entry == null) return null;
 
-		using var s = entry.Open();
-		return JsonSerializer.Deserialize<Document>(s, Json);
+		Document? document;
+		using (var s = entry.Open())
+		{
+			document = JsonSerializer.Deserialize<Document>(s, Json);
+		}
+		if (document == null) return null;
+
+		// 取り込んだ画像を使っているのに手元に無ければ、同梱されているものを復元する
+		var shape = document.Spec.Shape;
+		if (shape.Type == "image" && shape.ImageId != null && !ShapeRenderer.HasImage(shape.ImageId))
+		{
+			var texture = zip.GetEntry("Texture/" + ShapeRenderer.FileName(shape));
+			if (texture != null)
+			{
+				using var ts = texture.Open();
+				using var ms = new MemoryStream();
+				ts.CopyTo(ms);
+				ImageStore.Restore(shape.ImageId, ms.ToArray());
+			}
+		}
+
+		return document;
 	}
 
 	public bool Delete(string name)

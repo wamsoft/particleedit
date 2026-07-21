@@ -20,7 +20,7 @@ public static class BuiltinTemplates
 			StartSize = 46, StartSizeVariance = 18, EndSize = 0, EndSizeVariance = 0,
 			Hue = 24, HueVariance = 34, Saturation = 95, SaturationVariance = 10,
 			Brightness = 100, StartAlpha = 0.9f, EndAlpha = 0,
-			Blend = "add", Shape = "blur_circle",
+			Blend = "add", Shape = Shapes.BlurCircle,
 		}),
 
 		("噴水", new EffectSpec
@@ -31,7 +31,7 @@ public static class BuiltinTemplates
 			Life = 70, LifeVariance = 30,
 			StartSize = 28, StartSizeVariance = 12, EndSize = 0,
 			Hue = 200, HueVariance = 30, Saturation = 70, Brightness = 100,
-			Blend = "add", Shape = "blur_circle",
+			Blend = "add", Shape = Shapes.BlurCircle,
 		}),
 
 		("爆発", new EffectSpec
@@ -42,7 +42,7 @@ public static class BuiltinTemplates
 			Life = 40, LifeVariance = 24,
 			StartSize = 34, StartSizeVariance = 16, EndSize = 0,
 			Hue = 18, HueVariance = 40, Saturation = 95, Brightness = 100,
-			Blend = "add", Shape = "blur_circle",
+			Blend = "add", Shape = Shapes.BlurCircle,
 		}),
 
 		("雪", new EffectSpec
@@ -54,7 +54,7 @@ public static class BuiltinTemplates
 			StartSize = 9, StartSizeVariance = 6, EndSize = 9, EndSizeVariance = 6,
 			Hue = 210, HueVariance = 20, Saturation = 12, Brightness = 100,
 			StartAlpha = 0.9f, EndAlpha = 0,
-			Blend = "blend", Shape = "circle",
+			Blend = "blend", Shape = Shapes.Circle,
 		}),
 
 		("煙", new EffectSpec
@@ -66,7 +66,7 @@ public static class BuiltinTemplates
 			StartSize = 34, StartSizeVariance = 14, EndSize = 96, EndSizeVariance = 30,
 			Hue = 30, HueVariance = 10, Saturation = 6, Brightness = 45,
 			StartAlpha = 0.45f, EndAlpha = 0,
-			Blend = "blend", Shape = "blur_circle",
+			Blend = "blend", Shape = Shapes.BlurCircle,
 		}),
 
 		("きらめき", new EffectSpec
@@ -77,7 +77,7 @@ public static class BuiltinTemplates
 			Life = 46, LifeVariance = 30,
 			StartSize = 26, StartSizeVariance = 14, EndSize = 0,
 			Hue = 48, HueVariance = 70, Saturation = 60, SaturationVariance = 40,
-			Brightness = 100, Blend = "add", Shape = "star",
+			Brightness = 100, Blend = "add", Shape = Shapes.Star,
 		}),
 
 		("星屑", new EffectSpec
@@ -88,7 +88,7 @@ public static class BuiltinTemplates
 			Life = 90, LifeVariance = 40,
 			StartSize = 18, StartSizeVariance = 10, EndSize = 0,
 			Hue = 45, HueVariance = 40, Saturation = 80, Brightness = 100,
-			Blend = "add", Shape = "star",
+			Blend = "add", Shape = Shapes.Star,
 		}),
 
 		("泡", new EffectSpec
@@ -100,7 +100,7 @@ public static class BuiltinTemplates
 			StartSize = 22, StartSizeVariance = 14, EndSize = 26, EndSizeVariance = 14,
 			Hue = 190, HueVariance = 34, Saturation = 45, Brightness = 100,
 			StartAlpha = 0.75f, EndAlpha = 0,
-			Blend = "blend", Shape = "ring",
+			Blend = "blend", Shape = Shapes.Ring,
 		}),
 
 		("リング波", new EffectSpec
@@ -111,7 +111,7 @@ public static class BuiltinTemplates
 			StartSize = 14, StartSizeVariance = 0, EndSize = 230, EndSizeVariance = 40,
 			Hue = 190, HueVariance = 16, Saturation = 70, Brightness = 100,
 			StartAlpha = 0.85f, EndAlpha = 0,
-			Blend = "add", Shape = "ring",
+			Blend = "add", Shape = Shapes.Ring,
 		}),
 
 		("紙吹雪", new EffectSpec
@@ -122,7 +122,7 @@ public static class BuiltinTemplates
 			Life = 160, LifeVariance = 60,
 			StartSize = 13, StartSizeVariance = 7, EndSize = 13, EndSizeVariance = 7,
 			Hue = 0, HueVariance = 360, Saturation = 90, Brightness = 100,
-			Blend = "blend", Shape = "square",
+			Blend = "blend", Shape = Shapes.Square,
 		}),
 
 		("光の玉", new EffectSpec
@@ -134,7 +134,7 @@ public static class BuiltinTemplates
 			StartSize = 66, StartSizeVariance = 30, EndSize = 0,
 			Hue = 285, HueVariance = 50, Saturation = 55, Brightness = 100,
 			StartAlpha = 0.8f, EndAlpha = 0,
-			Blend = "add", Shape = "blur_circle",
+			Blend = "add", Shape = Shapes.BlurCircle,
 		}),
 
 		("魔法の粉", new EffectSpec
@@ -145,9 +145,28 @@ public static class BuiltinTemplates
 			Life = 95, LifeVariance = 45,
 			StartSize = 16, StartSizeVariance = 9, EndSize = 0,
 			Hue = 150, HueVariance = 90, Saturation = 75, SaturationVariance = 25,
-			Brightness = 100, Blend = "add", Shape = "star",
+			Brightness = 100, Blend = "add", Shape = Shapes.Star,
 		}),
 	};
+
+	/// <summary>組み込みテンプレートが使う形。ShapeRenderer.Presets から引く。</summary>
+	static class Shapes
+	{
+		static ShapeSpec Of(string name)
+		{
+			foreach (var (n, shape) in ShapeRenderer.Presets)
+			{
+				if (n == name) return shape;
+			}
+			return new ShapeSpec();
+		}
+
+		public static ShapeSpec BlurCircle => Of("ぼかし円");
+		public static ShapeSpec Circle => Of("円");
+		public static ShapeSpec Ring => Of("リング");
+		public static ShapeSpec Star => Of("星");
+		public static ShapeSpec Square => Of("四角");
+	}
 
 	public static EffectSpec? Find(string name)
 	{

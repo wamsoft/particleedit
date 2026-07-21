@@ -21,7 +21,7 @@ public static class EffectBuilder
 	static bool _initialized;
 	static string _workDir = "";
 
-	/// <summary>作業ディレクトリを用意し、組み込みテクスチャを書き出す。</summary>
+	/// <summary>作業ディレクトリを用意する。</summary>
 	public static void Initialize(string workDir)
 	{
 		lock (Gate)
@@ -30,14 +30,31 @@ public static class EffectBuilder
 
 			_workDir = workDir;
 			Directory.CreateDirectory(Path.Combine(workDir, "Texture"));
-			foreach (var name in ShapeTextures.Names)
-			{
-				File.WriteAllBytes(Path.Combine(workDir, "Texture", name + ".png"), ShapeTextures.GetPng(name));
-			}
 
 			Core.Initialize("en");
 			_initialized = true;
 		}
+	}
+
+	/// <summary>
+	/// 現在の形のテクスチャを作業ディレクトリへ書き出し、その相対パスを返す。
+	/// ファイル名は形の内容から決まるので、形を変えればパスも変わる
+	/// (プレビュー側でブラウザのキャッシュとぶつからない)。
+	/// </summary>
+	static string PrepareTexture(ShapeSpec shape)
+	{
+		var fileName = ShapeRenderer.FileName(shape);
+		var path = Path.Combine(_workDir, "Texture", fileName);
+		if (!File.Exists(path)) File.WriteAllBytes(path, ShapeRenderer.GetPng(shape));
+		return "Texture/" + fileName;
+	}
+
+	/// <summary>プレビューが取りに来るテクスチャを作業ディレクトリから返す。</summary>
+	public static byte[]? ReadTexture(string fileName)
+	{
+		if (fileName.Contains('/') || fileName.Contains('\\') || fileName.Contains("..")) return null;
+		var path = Path.Combine(_workDir, "Texture", fileName);
+		return File.Exists(path) ? File.ReadAllBytes(path) : null;
 	}
 
 	public static BuildResult Build(EffectSpec spec)
@@ -45,6 +62,8 @@ public static class EffectBuilder
 		lock (Gate)
 		{
 			Core.New();
+
+			var texturePath = PrepareTexture(spec.Shape);
 
 			// テクスチャの相対パス解決の基準になる「プロジェクトファイルの場所」
 			var projectPath = Path.Combine(_workDir, "effect.efkefc");
@@ -56,14 +75,14 @@ public static class EffectBuilder
 			ApplyCommon(node, spec);
 			ApplyLocation(node, spec);
 			ApplyScale(node, spec);
-			ApplyRenderer(node, spec);
+			ApplyRenderer(node, spec, texturePath);
 
 			var efk = new Effekseer.Binary.Exporter().Export(Core.Root, 1.0f);
 
 			Core.SaveTo(projectPath);
 			var efkefc = File.ReadAllBytes(projectPath);
 
-			return new BuildResult(efk, efkefc, "Texture/" + ShapeTextures.Resolve(spec.Shape) + ".png");
+			return new BuildResult(efk, efkefc, texturePath);
 		}
 	}
 
@@ -211,7 +230,7 @@ public static class EffectBuilder
 
 	// ------------------------------------------------------------ 描画 / 色
 
-	static void ApplyRenderer(Node node, EffectSpec spec)
+	static void ApplyRenderer(Node node, EffectSpec spec, string texturePath)
 	{
 		node.DrawingValues.Type.SetValue(RendererValues.ParamaterType.Sprite);
 
@@ -224,8 +243,7 @@ public static class EffectBuilder
 
 		var rc = node.RendererCommonValues;
 		rc.AlphaBlend.SetValue(spec.Blend == "blend" ? AlphaBlendType.Blend : AlphaBlendType.Add);
-		rc.ColorTexture.SetAbsolutePath(
-			Path.Combine(_workDir, "Texture", ShapeTextures.Resolve(spec.Shape) + ".png").Replace('\\', '/'));
+		rc.ColorTexture.SetAbsolutePath(Path.Combine(_workDir, texturePath).Replace('\\', '/'));
 	}
 
 	static void SetHsvaRange(Effekseer.Data.Value.ColorWithRandom color, EffectSpec spec, float alpha)

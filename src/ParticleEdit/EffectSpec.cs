@@ -62,8 +62,8 @@ public sealed class EffectSpec
 	/// <summary>"add" (加算) または "blend" (通常)</summary>
 	public string Blend { get; set; } = "add";
 
-	/// <summary>組み込みテクスチャ名。<see cref="ShapeTextures"/> のキー。</summary>
-	public string Shape { get; set; } = "blur_circle";
+	/// <summary>パーティクル 1 粒の形。</summary>
+	public ShapeSpec Shape { get; set; } = new();
 
 	// --- エディタ専用 (エフェクトデータには入らない) ---
 	[JsonIgnore(Condition = JsonIgnoreCondition.Never)]

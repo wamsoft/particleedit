@@ -49,8 +49,19 @@ const GROUPS = [
     params: [
       { key: "blend", label: "ブレンド", type: "select", value: "add",
         options: [["add", "加算"], ["blend", "通常"]] },
-      { key: "shape", label: "形状", type: "select", value: "blur_circle",
-        options: [["blur_circle", "ぼかし円"], ["circle", "円"], ["ring", "リング"], ["star", "星"], ["square", "四角"]] },
+    ],
+  },
+  {
+    title: "形状",
+    params: [
+      { type: "shape-editor" },
+      { key: "shape.sides",     label: "辺の数 (0 = 円)", min: 0,   max: 16, step: 1,    value: 0 },
+      { key: "shape.starRatio", label: "星形",           min: 0.05, max: 1,  step: 0.01, value: 1 },
+      { key: "shape.hole",      label: "中抜き",          min: 0,   max: 0.9, step: 0.01, value: 0 },
+      { key: "shape.blur",      label: "ぼかし",          min: 0,   max: 1,  step: 0.01, value: 1 },
+      { key: "shape.falloff",   label: "ぼかしの曲がり",   min: 0.2, max: 4,  step: 0.05, value: 2 },
+      { key: "shape.rotation",  label: "回転 (度)",       min: 0,   max: 360, step: 1,   value: 0 },
+      { key: "shape.scale",     label: "大きさ",          min: 0.2, max: 1,  step: 0.01, value: 1 },
     ],
   },
   {
@@ -61,10 +72,20 @@ const GROUPS = [
   },
 ];
 
-const spec = {};
-for (const g of GROUPS) for (const p of g.params) spec[p.key] = p.value;
+// パラメータは "shape.blur" のような入れ子のキーも取れるようにしておく
+const getPath = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
 
-/// key -> UI へ値を書き戻す関数。プロジェクト読み込み時に使う。
+function setPath(obj, path, value) {
+  const keys = path.split(".");
+  const last = keys.pop();
+  const target = keys.reduce((o, k) => (o[k] ??= {}), obj);
+  target[last] = value;
+}
+
+const spec = { shape: { type: "procedural", imageId: null } };
+for (const g of GROUPS) for (const p of g.params) if (p.key) setPath(spec, p.key, p.value);
+
+/// キー -> UI へ値を書き戻す関数。プロジェクトやテンプレートの読み込み時に使う。
 const controls = new Map();
 
 // ---------------------------------------------------------------- UI 構築
@@ -91,8 +112,14 @@ function buildPanel() {
     panel.appendChild(title);
 
     for (const p of group.params) {
+      if (p.type === "shape-editor") {
+        panel.appendChild(buildShapeEditor());
+        continue;
+      }
+
       const row = document.createElement("div");
       row.className = "row";
+      if (p.key.startsWith("shape.")) row.dataset.procedural = "1";
 
       const label = document.createElement("div");
       label.className = "label";
@@ -118,7 +145,7 @@ function buildPanel() {
         }
         input.value = p.value;
         input.addEventListener("input", () => {
-          spec[p.key] = input.value;
+          setPath(spec, p.key, input.value);
           if (p.key === "backgroundColor") return;   // 背景色は作り直し不要
           requestRebuild();
         });
@@ -132,8 +159,9 @@ function buildPanel() {
         const show = () => { value.textContent = formatNumber(+input.value, p.step); };
         show();
         input.addEventListener("input", () => {
-          spec[p.key] = +input.value;
+          setPath(spec, p.key, +input.value);
           show();
+          if (p.key.startsWith("shape.")) onShapeEdited();
           requestRebuild();
         });
         controls.set(p.key, (v) => { input.value = v; show(); });
@@ -145,14 +173,159 @@ function buildPanel() {
   }
 }
 
-/// 読み込んだパラメータを spec と UI の両方へ反映する。
+/// 読み込んだパラメータを spec へ取り込み、UI 全体を追従させる。
 function applySpec(loaded) {
   for (const key of Object.keys(spec)) {
     if (loaded[key] === undefined) continue;
     spec[key] = loaded[key];
-    const set = controls.get(key);
-    if (set) set(loaded[key]);
   }
+  syncControls();
+}
+
+/// spec の現在値をすべての UI コントロールへ書き戻す。
+function syncControls() {
+  for (const [key, set] of controls) {
+    const value = getPath(spec, key);
+    if (value !== undefined && value !== null) set(value);
+  }
+  updateShapePreview();
+  updateShapeRowsEnabled();
+}
+
+// ---------------------------------------------------------------- 形状エディタ
+// 形は「手続き的に生成する」か「取り込んだ画像を使う」かの 2 通り。
+// 手続き的なほうは下のスライダー群で、プリセットはその出発点。
+
+let shapePreviewEl = null;
+let shapeNoteEl = null;
+
+function buildShapeEditor() {
+  const box = document.createElement("div");
+  box.className = "row shape-editor";
+
+  const top = document.createElement("div");
+  top.className = "shape-top";
+
+  shapePreviewEl = document.createElement("div");
+  shapePreviewEl.className = "shape-preview";
+  shapePreviewEl.title = "いまの形";
+
+  const buttons = document.createElement("div");
+  buttons.className = "shape-presets";
+
+  const importButton = document.createElement("button");
+  importButton.type = "button";
+  importButton.textContent = "画像を取り込む…";
+  importButton.addEventListener("click", () => fileInput.click());
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/*";
+  fileInput.hidden = true;
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files && fileInput.files[0]) importImage(fileInput.files[0]);
+    fileInput.value = "";
+  });
+
+  top.append(shapePreviewEl, buttons);
+  box.append(top, importButton, fileInput);
+
+  shapeNoteEl = document.createElement("div");
+  shapeNoteEl.className = "shape-note";
+  box.appendChild(shapeNoteEl);
+
+  // プリセットはサーバから取る (組み込みテンプレートと同じ定義を共有するため)
+  fetch("/api/shapes").then((r) => r.json()).then((presets) => {
+    for (const preset of presets) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = preset.name;
+      button.addEventListener("click", () => {
+        spec.shape = { ...preset.shape, type: "procedural", imageId: null };
+        syncControls();
+        requestRebuild();
+      });
+      buttons.appendChild(button);
+    }
+  });
+
+  return box;
+}
+
+/// 手続き的なスライダーは画像を使っているときは効かないので、見た目でも分かるようにする。
+function updateShapeRowsEnabled() {
+  const isImage = spec.shape.type === "image";
+  for (const row of document.querySelectorAll('#params .row[data-procedural="1"]')) {
+    row.classList.toggle("disabled", isImage);
+    const input = row.querySelector("input");
+    if (input) input.disabled = isImage;
+  }
+  if (shapeNoteEl) {
+    shapeNoteEl.textContent = isImage
+      ? "取り込んだ画像を使用中。プリセットを押すと手続き的な形に戻ります。"
+      : "";
+  }
+}
+
+let shapePreviewUrl = null;
+
+async function updateShapePreview() {
+  if (!shapePreviewEl) return;
+  const res = await fetch("/api/shape.png", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec.shape),
+  });
+  if (!res.ok) return;
+
+  if (shapePreviewUrl) URL.revokeObjectURL(shapePreviewUrl);
+  shapePreviewUrl = URL.createObjectURL(await res.blob());
+  shapePreviewEl.style.backgroundImage = `url(${shapePreviewUrl})`;
+}
+
+/// スライダーを動かしたら手続き的な形に戻す (画像から抜ける)
+function onShapeEdited() {
+  if (spec.shape.type === "image") {
+    spec.shape.type = "procedural";
+    spec.shape.imageId = null;
+    updateShapeRowsEnabled();
+  }
+  updateShapePreview();
+}
+
+/// 取り込んだ画像は 2 の冪サイズへ整えてから送る。
+/// Effekseer の WebGL ランタイムは非 2 冪テクスチャを勝手に縮めるので、
+/// ここで揃えておかないとプレビューと書き出しで見た目がずれる。
+async function importImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const size = Math.min(512, Math.max(32, nextPowerOfTwo(Math.max(bitmap.width, bitmap.height))));
+
+    const canvas2d = document.createElement("canvas");
+    canvas2d.width = size;
+    canvas2d.height = size;
+    const ctx2d = canvas2d.getContext("2d");
+    ctx2d.drawImage(bitmap, 0, 0, size, size);
+
+    const blob = await new Promise((r) => canvas2d.toBlob(r, "image/png"));
+    const res = await fetch("/api/images", { method: "POST", body: blob });
+    if (!res.ok) throw new Error(await res.text());
+
+    const { id } = await res.json();
+    spec.shape = { ...spec.shape, type: "image", imageId: id };
+    updateShapeRowsEnabled();
+    await updateShapePreview();
+    await rebuild();
+    setStatus(`画像を取り込みました (${size}x${size})`);
+  } catch (e) {
+    setStatus("画像の取り込みに失敗: " + e.message, true);
+  }
+}
+
+function nextPowerOfTwo(n) {
+  let v = 1;
+  while (v < n) v *= 2;
+  return v;
 }
 
 // ---------------------------------------------------------------- プロジェクト
@@ -626,13 +799,29 @@ async function runSelfTest() {
   }
   templates.ok = templates.count >= 12 && templates.rendered.every((t) => t.ok);
 
+  // 形状: プリセットを切り替えても描画され、形ごとに別のテクスチャになるか
+  const presets = await (await fetch("/api/shapes")).json();
+  const shapes = { count: presets.length, checked: [] };
+  for (const preset of presets) {
+    spec.shape = { ...preset.shape, type: "procedural", imageId: null };
+    await rebuild();
+    await sleep(120);
+    const measured = renderAndMeasure(30);
+    const png = await (await fetch("/api/shape.png", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec.shape),
+    })).blob();
+    shapes.checked.push({ name: preset.name, litPixels: measured.litPixels, pngBytes: png.size,
+      ok: measured.litPixels > 0 && png.size > 200 });
+  }
+  shapes.ok = shapes.checked.every((s) => s.ok);
+
   const blank = cycles.filter((c) => c.litPixels === 0);
   const el = document.createElement("pre");
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && roundTrip.ok && templates.ok,
-      blankCycles: blank.length, roundTrip, templates, cycles,
+      ok: blank.length === 0 && roundTrip.ok && templates.ok && shapes.ok,
+      blankCycles: blank.length, roundTrip, templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }
@@ -640,6 +829,7 @@ async function runSelfTest() {
 // ---------------------------------------------------------------- 起動
 
 buildPanel();
+syncControls();
 refreshProjectList();
 
 if (!gl) {
