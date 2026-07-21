@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ParticleEdit — Effekseer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>ParticleEdit <span class="sub">Effekseer backend</span></h1>
+  <div class="actions">
+    <span id="status" class="status">起動中…</span>
+    <button id="btn-efk" type="button">.efk</button>
+    <button id="btn-efkefc" type="button">.efkefc</button>
+    <button id="btn-zip" type="button" class="primary">zip で書き出し</button>
+  </div>
+</header>
+
+<main>
+  <section id="preview">
+    <canvas id="canvas"></canvas>
+    <div id="stats"></div>
+  </section>
+  <aside id="params"></aside>
+</main>
+
+<script src="vendor/effekseer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

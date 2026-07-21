@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>EffekseerCore</AssemblyName>
+    <DefineConstants>SCRIPT_ENABLED;DOTNET_STARNDARD;</DefineConstants>
+    <NoWarn>$(NoWarn);CS8981;CS0659;CS0067;CS0649;SYSLIB0021;CA2200</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Properties/AssemblyInfo.cs" />
+    <Compile Remove="packages.config" />
+    <PackageReference Include="IronPython" Version="2.7.9" />
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+  </ItemGroup>
+
+</Project>
