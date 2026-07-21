@@ -17,6 +17,10 @@ public static class ShapeTextures
 
 	static readonly Dictionary<string, byte[]> Cache = new();
 
+	/// <summary>未知の名前が来ても落ちないように、組み込みの形状名へ丸める。</summary>
+	public static string Resolve(string? name)
+		=> name != null && Names.Contains(name) ? name : Names[0];
+
 	public static byte[] GetPng(string name)
 	{
 		lock (Cache)

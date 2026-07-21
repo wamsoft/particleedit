@@ -11,10 +11,19 @@
 <header>
   <h1>ParticleEdit <span class="sub">Effekseer backend</span></h1>
   <div class="actions">
+    <input id="project-name" type="text" placeholder="プロジェクト名" spellcheck="false">
+    <button id="btn-save" type="button">保存</button>
+    <select id="project-list" title="保存済みプロジェクトを読み込む"></select>
+
+    <span class="spacer"></span>
     <span id="status" class="status">起動中…</span>
-    <button id="btn-efk" type="button">.efk</button>
-    <button id="btn-efkefc" type="button">.efkefc</button>
-    <button id="btn-zip" type="button" class="primary">zip で書き出し</button>
+
+    <select id="export-format" title="エクスポート形式">
+      <option value="efkzip">efkzip (吉里吉里プラグイン用)</option>
+      <option value="efk">efk + テクスチャ (zip)</option>
+      <option value="efkefc">efkefc + テクスチャ (zip)</option>
+    </select>
+    <button id="btn-export" type="button" class="primary">エクスポート</button>
   </div>
 </header>
 

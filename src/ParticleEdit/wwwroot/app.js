@@ -53,10 +53,19 @@ const GROUPS = [
         options: [["blur_circle", "ぼかし円"], ["circle", "円"], ["ring", "リング"], ["star", "星"], ["square", "四角"]] },
     ],
   },
+  {
+    title: "プレビュー (エフェクトには含まれない)",
+    params: [
+      { key: "backgroundColor", label: "背景色", type: "color", value: "#101014" },
+    ],
+  },
 ];
 
 const spec = {};
 for (const g of GROUPS) for (const p of g.params) spec[p.key] = p.value;
+
+/// key -> UI へ値を書き戻す関数。プロジェクト読み込み時に使う。
+const controls = new Map();
 
 // ---------------------------------------------------------------- UI 構築
 
@@ -66,6 +75,11 @@ const statsEl = document.getElementById("stats");
 function setStatus(text, isError) {
   statusEl.textContent = text;
   statusEl.classList.toggle("error", !!isError);
+}
+
+function formatNumber(v, step) {
+  const decimals = (String(step).split(".")[1] || "").length;
+  return v.toFixed(decimals);
 }
 
 function buildPanel() {
@@ -89,18 +103,27 @@ function buildPanel() {
       label.append(name, value);
       row.appendChild(label);
 
-      if (p.type === "select") {
-        value.textContent = "";
-        const sel = document.createElement("select");
-        for (const [v, text] of p.options) {
-          const opt = document.createElement("option");
-          opt.value = v;
-          opt.textContent = text;
-          sel.appendChild(opt);
+      if (p.type === "select" || p.type === "color") {
+        const input = p.type === "color"
+          ? Object.assign(document.createElement("input"), { type: "color" })
+          : document.createElement("select");
+
+        if (p.type === "select") {
+          for (const [v, text] of p.options) {
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = text;
+            input.appendChild(opt);
+          }
         }
-        sel.value = p.value;
-        sel.addEventListener("change", () => { spec[p.key] = sel.value; requestRebuild(); });
-        row.appendChild(sel);
+        input.value = p.value;
+        input.addEventListener("input", () => {
+          spec[p.key] = input.value;
+          if (p.key === "backgroundColor") return;   // 背景色は作り直し不要
+          requestRebuild();
+        });
+        controls.set(p.key, (v) => { input.value = v; });
+        row.appendChild(input);
       } else {
         const input = document.createElement("input");
         input.type = "range";
@@ -113,6 +136,7 @@ function buildPanel() {
           show();
           requestRebuild();
         });
+        controls.set(p.key, (v) => { input.value = v; show(); });
         row.appendChild(input);
       }
 
@@ -121,32 +145,99 @@ function buildPanel() {
   }
 }
 
-function formatNumber(v, step) {
-  const decimals = (String(step).split(".")[1] || "").length;
-  return v.toFixed(decimals);
+/// 読み込んだパラメータを spec と UI の両方へ反映する。
+function applySpec(loaded) {
+  for (const key of Object.keys(spec)) {
+    if (loaded[key] === undefined) continue;
+    spec[key] = loaded[key];
+    const set = controls.get(key);
+    if (set) set(loaded[key]);
+  }
 }
 
-// ---------------------------------------------------------------- 書き出し
+// ---------------------------------------------------------------- プロジェクト
 
-async function exportAs(format) {
-  const res = await fetch("/api/export?format=" + format, {
+const nameInput = document.getElementById("project-name");
+const projectList = document.getElementById("project-list");
+
+async function refreshProjectList(selected) {
+  const res = await fetch("/api/projects");
+  const items = await res.json();
+
+  projectList.textContent = "";
+  const head = document.createElement("option");
+  head.value = "";
+  head.textContent = items.length ? "読み込み…" : "(保存されたものはありません)";
+  projectList.appendChild(head);
+
+  for (const item of items) {
+    const opt = document.createElement("option");
+    opt.value = item.name;
+    opt.textContent = `${item.name}  —  ${new Date(item.modified).toLocaleString()}`;
+    projectList.appendChild(opt);
+  }
+  projectList.value = selected || "";
+}
+
+async function saveProject() {
+  const name = nameInput.value.trim();
+  if (!name) { setStatus("プロジェクト名を入力してください", true); nameInput.focus(); return; }
+
+  const res = await fetch("/api/projects/" + encodeURIComponent(name), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  if (!res.ok) { setStatus("保存に失敗: " + (await res.text()), true); return; }
+
+  await refreshProjectList(name);
+  setStatus(`保存しました: ${name}`);
+}
+
+async function loadProject(name) {
+  const res = await fetch("/api/projects/" + encodeURIComponent(name));
+  if (!res.ok) { setStatus("読み込みに失敗: " + res.status, true); return; }
+
+  const document_ = await res.json();
+  applySpec(document_.spec);
+  nameInput.value = name;
+  await rebuild();
+  setStatus(`読み込みました: ${name}`);
+}
+
+document.getElementById("btn-save").addEventListener("click", saveProject);
+projectList.addEventListener("change", () => {
+  if (projectList.value) loadProject(projectList.value);
+});
+
+// ---------------------------------------------------------------- エクスポート
+
+async function exportEffect() {
+  const format = document.getElementById("export-format").value;
+  const name = nameInput.value.trim();
+  const query = new URLSearchParams({ format });
+  if (name) query.set("name", name);
+
+  const res = await fetch("/api/export?" + query, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(spec),
   });
   if (!res.ok) { setStatus("書き出しに失敗: " + res.status, true); return; }
 
+  // サーバが Content-Disposition で付けたファイル名をそのまま使う
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const matched = /filename="?([^";]+)"?/.exec(disposition);
   const blob = await res.blob();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = format === "zip" ? "effect.zip" : "effect." + format;
+  a.download = matched ? decodeURIComponent(matched[1]) : "effect.zip";
   a.click();
   URL.revokeObjectURL(a.href);
+  setStatus(`書き出しました: ${a.download}`);
 }
 
-document.getElementById("btn-efk").addEventListener("click", () => exportAs("efk"));
-document.getElementById("btn-efkefc").addEventListener("click", () => exportAs("efkefc"));
-document.getElementById("btn-zip").addEventListener("click", () => exportAs("zip"));
+document.getElementById("btn-export").addEventListener("click", exportEffect);
 
 // ---------------------------------------------------------------- プレビュー
 
@@ -243,6 +334,38 @@ function resize() {
   return { w, h };
 }
 
+function clearToBackground() {
+  const c = spec.backgroundColor || "#000000";
+  const r = parseInt(c.slice(1, 3), 16) / 255;
+  const g = parseInt(c.slice(3, 5), 16) / 255;
+  const b = parseInt(c.slice(5, 7), 16) / 255;
+  gl.clearColor(r, g, b, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+}
+
+/// 1 フレーム分の更新と描画。
+function step(w, h) {
+  clearToBackground();
+  // 1 ワールド単位 = 1 CSS ピクセルになるように正射影を張る
+  context.setProjectionOrthographic(w, h, 1, 4000);
+  context.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
+  context.update(1.0);
+  context.draw();
+}
+
+function frame() {
+  const { w, h } = resize();
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  if (context) {
+    step(w, h);
+    // 空き枠から逆算した、いま生きているインスタンス数
+    statsEl.textContent = `particles: ${INSTANCE_MAX - context.getRestInstancesCount()}`;
+  }
+
+  requestAnimationFrame(frame);
+}
+
 // ---------------------------------------------------------------- 自己診断
 // ?selftest=1 を付けて開くと、パラメータを変えながら数サイクル回し、
 // 各サイクルで「実際にピクセルが描かれたか」を測って DOM に書き出す。
@@ -252,24 +375,22 @@ function resize() {
 function renderAndMeasure(frames) {
   const { w, h } = resize();
   gl.viewport(0, 0, canvas.width, canvas.height);
-
-  for (let i = 0; i < frames; i++) {
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    context.setProjectionOrthographic(w, h, 1, 4000);
-    context.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
-    context.update(1.0);
-    context.draw();
-  }
+  for (let i = 0; i < frames; i++) step(w, h);
 
   const pixels = new Uint8Array(canvas.width * canvas.height * 4);
   gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+  // 背景色そのものは「描かれていない」とみなす
+  const bg = spec.backgroundColor || "#000000";
+  const bgR = parseInt(bg.slice(1, 3), 16);
+  const bgG = parseInt(bg.slice(3, 5), 16);
+  const bgB = parseInt(bg.slice(5, 7), 16);
 
   let lit = 0, xMin = 1e9, xMax = -1e9, yMin = 1e9, yMax = -1e9;
   for (let y = 0; y < canvas.height; y++) {
     for (let x = 0; x < canvas.width; x++) {
       const i = (y * canvas.width + x) * 4;
-      if (pixels[i] > 16 || pixels[i + 1] > 16 || pixels[i + 2] > 16) {
+      if (Math.abs(pixels[i] - bgR) > 16 || Math.abs(pixels[i + 1] - bgG) > 16 || Math.abs(pixels[i + 2] - bgB) > 16) {
         lit++;
         if (x < xMin) xMin = x; if (x > xMax) xMax = x;
         if (y < yMin) yMin = y; if (y > yMax) yMax = y;
@@ -293,6 +414,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function runSelfTest() {
   const cycles = [];
+
   // 実際の操作と同じように、パラメータを変えては作り直す
   for (let i = 0; i < 5; i++) {
     spec.hue = 20 + i * 60;
@@ -308,40 +430,32 @@ async function runSelfTest() {
     await sleep(5);
   }
   await sleep(600);
-  const burst = { cycle: "burst", hue: spec.hue, ...renderAndMeasure(40) };
-  cycles.push(burst);
+  cycles.push({ cycle: "burst", hue: spec.hue, ...renderAndMeasure(40) });
+
+  // 保存 → 読み込みでパラメータが往復するか
+  const saveName = "__selftest__";
+  spec.hue = 222; spec.life = 123;
+  await fetch("/api/projects/" + saveName, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec),
+  });
+  spec.hue = 0; spec.life = 1;
+  const loaded = await (await fetch("/api/projects/" + saveName)).json();
+  applySpec(loaded.spec);
+  const roundTrip = { hue: spec.hue, life: spec.life, ok: spec.hue === 222 && spec.life === 123 };
+  await fetch("/api/projects/" + saveName, { method: "DELETE" });
 
   const blank = cycles.filter((c) => c.litPixels === 0);
   const el = document.createElement("pre");
   el.id = "selftest";
-  el.textContent = JSON.stringify({ ok: blank.length === 0, blankCycles: blank.length, cycles }, null, 1);
+  el.textContent = JSON.stringify(
+    { ok: blank.length === 0 && roundTrip.ok, blankCycles: blank.length, roundTrip, cycles }, null, 1);
   document.body.appendChild(el);
-}
-
-function frame() {
-  const { w, h } = resize();
-
-  gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  if (context) {
-    // 1 ワールド単位 = 1 CSS ピクセルになるように正射影を張る
-    context.setProjectionOrthographic(w, h, 1, 4000);
-    context.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
-    context.update(1.0);
-    context.draw();
-
-    // 空き枠から逆算した、いま生きているインスタンス数
-    statsEl.textContent = `particles: ${INSTANCE_MAX - context.getRestInstancesCount()}`;
-  }
-
-  requestAnimationFrame(frame);
 }
 
 // ---------------------------------------------------------------- 起動
 
 buildPanel();
+refreshProjectList();
 
 if (!gl) {
   setStatus("WebGL を初期化できません", true);

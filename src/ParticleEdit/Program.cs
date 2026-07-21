@@ -1,13 +1,12 @@
 using System.IO.Compression;
-using System.Text.Json;
 using ParticleEdit;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 var app = builder.Build();
 
-var workDir = Path.Combine(AppContext.BaseDirectory, "work");
-EffectBuilder.Initialize(workDir);
+EffectBuilder.Initialize(Path.Combine(AppContext.BaseDirectory, "work"));
+var projects = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "projects"));
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -27,37 +26,68 @@ app.MapPost("/api/debug", (EffectSpec spec) => Results.Text(EffectBuilder.Descri
 // プレビュー用: パラメータを受け取って .efk のバイト列を返す。
 // ブラウザ側はこれを ArrayBuffer のまま effekseer.js の loadEffect に渡す。
 app.MapPost("/api/effect.efk", (EffectSpec spec) =>
+	Results.Bytes(EffectBuilder.Build(spec).Efk, "application/octet-stream"));
+
+// ---------------------------------------------------------------- プロジェクト
+// このアプリ固有のセーブ/ロード。編集を再開できる往復可能な形式。
+
+app.MapGet("/api/projects", () => projects.List());
+
+app.MapGet("/api/projects/{name}", (string name) =>
 {
-	var result = EffectBuilder.Build(spec);
-	return Results.Bytes(result.Efk, "application/octet-stream");
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	var document = projects.Load(name);
+	return document == null ? Results.NotFound() : Results.Ok(document);
 });
 
-// 書き出し: .efk / .efkefc 単体、または テクスチャ込みの zip。
-app.MapPost("/api/export", (EffectSpec spec, string format) =>
+app.MapPut("/api/projects/{name}", (string name, EffectSpec spec) =>
 {
-	var result = EffectBuilder.Build(spec);
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	projects.Save(name, spec);
+	return Results.Ok();
+});
 
-	switch (format)
+app.MapDelete("/api/projects/{name}", (string name) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	return projects.Delete(name) ? Results.Ok() : Results.NotFound();
+});
+
+// ---------------------------------------------------------------- エクスポート
+// 配布用の一方向の書き出し。どの形式もテクスチャを同梱した ZIP にする。
+//
+// efkzip は吉里吉里プラグイン (wamsoft_work/effekseer) が読む形式。
+// プラグインはエントリ名を指定されなければ ZIP 内の最初の .efkefc (無ければ .efk) を
+// エフェクト本体とし、資材はエフェクトからの相対パスで ZIP 内を引く。
+// したがって「ルートに .efkefc を 1 つ + Texture/」で成立する。マニフェストは不要。
+
+app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
+{
+	var baseName = ProjectStore.IsValidName(name ?? "") ? name! : "effect";
+	var result = EffectBuilder.Build(spec);
+	var shape = ShapeTextures.Resolve(spec.Shape);
+
+	var (effectEntry, effectBytes, fileName) = format switch
 	{
-		case "efk":
-			return Results.Bytes(result.Efk, "application/octet-stream", "effect.efk");
-		case "efkefc":
-			return Results.Bytes(result.Efkefc, "application/octet-stream", "effect.efkefc");
-		case "zip":
-			{
-				using var ms = new MemoryStream();
-				using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
-				{
-					Add(zip, "effect.efk", result.Efk);
-					Add(zip, "effect.efkefc", result.Efkefc);
-					Add(zip, result.TextureRelativePath, ShapeTextures.GetPng(spec.Shape));
-					Add(zip, "params.json", JsonSerializer.SerializeToUtf8Bytes(spec, JsonOpts));
-				}
-				return Results.Bytes(ms.ToArray(), "application/zip", "effect.zip");
-			}
-		default:
-			return Results.BadRequest("unknown format");
+		// ランタイム用の最小構成
+		"efk" => ($"{baseName}.efk", result.Efk, $"{baseName}.zip"),
+		// 公式 Effekseer エディタで開ける形
+		"efkefc" => ($"{baseName}.efkefc", result.Efkefc, $"{baseName}.zip"),
+		// 吉里吉里プラグイン用
+		"efkzip" => ($"{baseName}.efkefc", result.Efkefc, $"{baseName}.efkzip"),
+		_ => (null, null, null),
+	};
+
+	if (effectEntry == null) return Results.BadRequest("unknown format");
+
+	using var ms = new MemoryStream();
+	using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+	{
+		AddEntry(zip, effectEntry, effectBytes!);
+		AddEntry(zip, $"Texture/{shape}.png", ShapeTextures.GetPng(shape));
 	}
+
+	return Results.Bytes(ms.ToArray(), "application/zip", fileName);
 });
 
 Console.WriteLine();
@@ -66,14 +96,8 @@ Console.WriteLine();
 
 app.Run("http://localhost:5188");
 
-static void Add(ZipArchive zip, string path, byte[] bytes)
+static void AddEntry(ZipArchive zip, string path, byte[] bytes)
 {
-	var entry = zip.CreateEntry(path, CompressionLevel.Optimal);
-	using var s = entry.Open();
+	using var s = zip.CreateEntry(path, CompressionLevel.Optimal).Open();
 	s.Write(bytes, 0, bytes.Length);
-}
-
-public partial class Program
-{
-	internal static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 }

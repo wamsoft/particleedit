@@ -63,7 +63,7 @@ public static class EffectBuilder
 			Core.SaveTo(projectPath);
 			var efkefc = File.ReadAllBytes(projectPath);
 
-			return new BuildResult(efk, efkefc, "Texture/" + SafeShape(spec) + ".png");
+			return new BuildResult(efk, efkefc, "Texture/" + ShapeTextures.Resolve(spec.Shape) + ".png");
 		}
 	}
 
@@ -225,7 +225,7 @@ public static class EffectBuilder
 		var rc = node.RendererCommonValues;
 		rc.AlphaBlend.SetValue(spec.Blend == "blend" ? AlphaBlendType.Blend : AlphaBlendType.Add);
 		rc.ColorTexture.SetAbsolutePath(
-			Path.Combine(_workDir, "Texture", SafeShape(spec) + ".png").Replace('\\', '/'));
+			Path.Combine(_workDir, "Texture", ShapeTextures.Resolve(spec.Shape) + ".png").Replace('\\', '/'));
 	}
 
 	static void SetHsvaRange(Effekseer.Data.Value.ColorWithRandom color, EffectSpec spec, float alpha)
@@ -240,9 +240,6 @@ public static class EffectBuilder
 		SetByteRange(color.B, spec.Brightness / 100f * 255f, spec.BrightnessVariance / 100f * 255f, 0, 255);
 		SetByteRange(color.A, alpha * 255f, 0f, 0, 255);
 	}
-
-	static string SafeShape(EffectSpec spec)
-		=> ShapeTextures.Names.Contains(spec.Shape) ? spec.Shape : ShapeTextures.Names[0];
 
 	// -------------------------------------------------------------- ヘルパ
 
