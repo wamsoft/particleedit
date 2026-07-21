@@ -7,6 +7,7 @@ var app = builder.Build();
 
 EffectBuilder.Initialize(Path.Combine(AppContext.BaseDirectory, "work"));
 var projects = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "projects"));
+var userTemplates = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "templates"));
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -51,6 +52,44 @@ app.MapDelete("/api/projects/{name}", (string name) =>
 {
 	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
 	return projects.Delete(name) ? Results.Ok() : Results.NotFound();
+});
+
+// ---------------------------------------------------------------- テンプレート
+// 組み込み (コード定義) とユーザー追加 (templates/ の zip) を 1 つのリストで返す。
+// 同じ名前があればユーザー側を優先する。
+
+app.MapGet("/api/templates", () =>
+	BuiltinTemplates.All
+		.Select(t => new { name = t.Name, builtin = true, modified = (DateTime?)null })
+		.Where(t => userTemplates.List().All(u => u.Name != t.name))
+		.Concat(userTemplates.List()
+			.Select(t => new { name = t.Name, builtin = false, modified = (DateTime?)t.Modified }))
+		.ToList());
+
+app.MapGet("/api/templates/{name}", (string name) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+
+	// ユーザーが同名で上書きしていればそちらを使う
+	var user = userTemplates.Load(name);
+	if (user != null) return Results.Ok(user.Spec);
+
+	var builtin = BuiltinTemplates.Find(name);
+	return builtin == null ? Results.NotFound() : Results.Ok(builtin);
+});
+
+app.MapPut("/api/templates/{name}", (string name, EffectSpec spec) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	userTemplates.Save(name, spec);
+	return Results.Ok();
+});
+
+app.MapDelete("/api/templates/{name}", (string name) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	// 組み込みは消せない
+	return userTemplates.Delete(name) ? Results.Ok() : Results.NotFound();
 });
 
 // ---------------------------------------------------------------- エクスポート

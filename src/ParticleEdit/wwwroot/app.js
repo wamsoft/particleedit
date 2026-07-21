@@ -274,7 +274,7 @@ async function rebuild() {
     if (!res.ok) throw new Error("HTTP " + res.status);
 
     const buffer = await res.arrayBuffer();
-    const next = await loadEffect(buffer);
+    const next = await loadEffectOn(context, buffer);
 
     if (myGeneration !== generation) {
       // 待っている間に新しいビルドが始まっていた。この結果は捨てる。
@@ -292,15 +292,26 @@ async function rebuild() {
   }
 }
 
+/// パラメータからエフェクトのバイナリを作る。
+async function buildEffect(forSpec) {
+  const res = await fetch("/api/effect.efk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(forSpec),
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.arrayBuffer();
+}
+
 /// エフェクトを「テクスチャまで含めて完全に読み終わった状態」で返す。
 ///
 /// 注意: loadEffect() に ArrayBuffer を渡すと、依存リソースが Effekseer 側の
 /// キャッシュに残っている場合は onload が *同期的に* 呼ばれる。つまり
 /// loadEffect() の戻り値をコールバックの中から参照することはできない。
 /// (ここを踏み外すと「パラメータを変えるとプレビューが消える」不具合になる)
-function loadEffect(buffer) {
+function loadEffectOn(ctx, buffer) {
   return new Promise((resolve, reject) => {
-    const created = context.loadEffect(
+    const created = ctx.loadEffect(
       buffer,
       1.0,
       undefined,
@@ -365,6 +376,158 @@ function frame() {
 
   requestAnimationFrame(frame);
 }
+
+// ---------------------------------------------------------------- テンプレート
+// 組み込み (サーバのコード定義) とユーザー追加を 1 つのグリッドで見せる。
+// サムネイルはプレビューとは別の WebGL コンテキストで焼くので、
+// 一覧を開いても編集中のプレビューには影響しない。
+
+const overlay = document.getElementById("template-overlay");
+const grid = document.getElementById("template-grid");
+const templateNameInput = document.getElementById("template-name");
+const thumbnailCache = new Map();
+
+let thumbCanvas = null, thumbGl = null, thumbContext = null;
+
+function initThumbnailContext() {
+  if (thumbContext) return thumbContext;
+  thumbCanvas = document.createElement("canvas");
+  thumbCanvas.width = 240;
+  thumbCanvas.height = 180;
+  // toDataURL でフレームバッファを読むので保持を頼んでおく
+  thumbGl = thumbCanvas.getContext("webgl", { alpha: false, depth: true, antialias: true, preserveDrawingBuffer: true });
+  thumbContext = effekseer.createContext();
+  thumbContext.init(thumbGl);
+  return thumbContext;
+}
+
+/// テンプレートを一定フレーム進めた絵を PNG の data URL にして返す。
+async function renderThumbnail(templateSpec) {
+  const ctx = initThumbnailContext();
+  const created = await loadEffectOn(ctx, await buildEffect(templateSpec));
+
+  ctx.stopAll();
+  ctx.play(created, 0, 0, 0);
+
+  const bg = templateSpec.backgroundColor || "#101014";
+  const r = parseInt(bg.slice(1, 3), 16) / 255;
+  const g = parseInt(bg.slice(3, 5), 16) / 255;
+  const b = parseInt(bg.slice(5, 7), 16) / 255;
+
+  thumbGl.viewport(0, 0, thumbCanvas.width, thumbCanvas.height);
+  // 実プレビューより広い範囲を映して全体像が入るようにする
+  for (let i = 0; i < 90; i++) {
+    thumbGl.clearColor(r, g, b, 1);
+    thumbGl.clear(thumbGl.COLOR_BUFFER_BIT | thumbGl.DEPTH_BUFFER_BIT);
+    ctx.setProjectionOrthographic(1000, 750, 1, 4000);
+    ctx.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
+    ctx.update(1.0);
+    ctx.draw();
+  }
+
+  const url = thumbCanvas.toDataURL("image/png");
+  ctx.stopAll();
+  ctx.releaseEffect(created);
+  return url;
+}
+
+async function openTemplates() {
+  overlay.classList.remove("hidden");
+  const res = await fetch("/api/templates");
+  const items = await res.json();
+
+  grid.textContent = "";
+  for (const item of items) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "card";
+
+    const thumb = document.createElement("span");
+    thumb.className = "thumb";
+    if (thumbnailCache.has(item.name)) {
+      thumb.style.backgroundImage = `url(${thumbnailCache.get(item.name)})`;
+    }
+
+    const caption = document.createElement("span");
+    caption.className = "caption";
+    const label = document.createElement("span");
+    label.textContent = item.name;
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = item.builtin ? "組み込み" : "自分の";
+    caption.append(label, tag);
+
+    card.append(thumb, caption);
+    card.addEventListener("click", () => applyTemplate(item.name));
+
+    if (!item.builtin) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "remove";
+      remove.textContent = "×";
+      remove.title = "削除";
+      remove.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        await fetch("/api/templates/" + encodeURIComponent(item.name), { method: "DELETE" });
+        thumbnailCache.delete(item.name);
+        openTemplates();
+      });
+      card.appendChild(remove);
+    }
+
+    grid.appendChild(card);
+  }
+
+  // サムネイルは順に焼いて、できたものから差し込む
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (thumbnailCache.has(item.name)) continue;
+    try {
+      const templateSpec = await (await fetch("/api/templates/" + encodeURIComponent(item.name))).json();
+      const url = await renderThumbnail(templateSpec);
+      thumbnailCache.set(item.name, url);
+      const thumb = grid.children[i]?.querySelector(".thumb");
+      if (thumb) thumb.style.backgroundImage = `url(${url})`;
+    } catch (e) {
+      console.warn("thumbnail failed:", item.name, e);
+    }
+  }
+}
+
+async function applyTemplate(name) {
+  const res = await fetch("/api/templates/" + encodeURIComponent(name));
+  if (!res.ok) { setStatus("テンプレートの読み込みに失敗: " + res.status, true); return; }
+
+  applySpec(await res.json());
+  overlay.classList.add("hidden");
+  await rebuild();
+  setStatus(`テンプレートを適用: ${name}`);
+}
+
+async function addTemplate() {
+  const name = templateNameInput.value.trim();
+  if (!name) { setStatus("テンプレート名を入力してください", true); templateNameInput.focus(); return; }
+
+  const res = await fetch("/api/templates/" + encodeURIComponent(name), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  if (!res.ok) { setStatus("追加に失敗: " + (await res.text()), true); return; }
+
+  thumbnailCache.delete(name);       // 上書きされたので焼き直す
+  templateNameInput.value = "";
+  await openTemplates();
+  setStatus(`テンプレートに追加: ${name}`);
+}
+
+document.getElementById("btn-templates").addEventListener("click", openTemplates);
+document.getElementById("btn-add-template").addEventListener("click", addTemplate);
+document.getElementById("btn-close-templates").addEventListener("click", () => overlay.classList.add("hidden"));
+overlay.addEventListener("click", (ev) => { if (ev.target === overlay) overlay.classList.add("hidden"); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") overlay.classList.add("hidden");
+});
 
 // ---------------------------------------------------------------- 自己診断
 // ?selftest=1 を付けて開くと、パラメータを変えながら数サイクル回し、
@@ -444,11 +607,33 @@ async function runSelfTest() {
   const roundTrip = { hue: spec.hue, life: spec.life, ok: spec.hue === 222 && spec.life === 123 };
   await fetch("/api/projects/" + saveName, { method: "DELETE" });
 
+  // テンプレート: 一覧が取れて、適用すると描画され、サムネイルも焼けるか
+  const list = await (await fetch("/api/templates")).json();
+  const templates = { count: list.length, rendered: [] };
+  for (const name of ["炎", "爆発", "雪"]) {
+    const templateSpec = await (await fetch("/api/templates/" + encodeURIComponent(name))).json();
+    applySpec(templateSpec);
+    await rebuild();
+    await sleep(150);
+    const measured = renderAndMeasure(40);
+    const thumb = await renderThumbnail(templateSpec);
+    templates.rendered.push({
+      name,
+      litPixels: measured.litPixels,
+      thumbnailBytes: thumb.length,
+      ok: measured.litPixels > 0 && thumb.length > 1000,
+    });
+  }
+  templates.ok = templates.count >= 12 && templates.rendered.every((t) => t.ok);
+
   const blank = cycles.filter((c) => c.litPixels === 0);
   const el = document.createElement("pre");
   el.id = "selftest";
   el.textContent = JSON.stringify(
-    { ok: blank.length === 0 && roundTrip.ok, blankCycles: blank.length, roundTrip, cycles }, null, 1);
+    {
+      ok: blank.length === 0 && roundTrip.ok && templates.ok,
+      blankCycles: blank.length, roundTrip, templates, cycles,
+    }, null, 1);
   document.body.appendChild(el);
 }
 
@@ -469,6 +654,7 @@ if (!gl) {
     } else {
       rebuild();
       requestAnimationFrame(frame);
+      if (location.hash === "#templates") openTemplates();
     }
   }, () => {
     setStatus("effekseer.wasm の読み込みに失敗しました", true);

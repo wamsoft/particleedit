@@ -11,6 +11,8 @@
 <header>
   <h1>ParticleEdit <span class="sub">Effekseer backend</span></h1>
   <div class="actions">
+    <button id="btn-templates" type="button">テンプレート</button>
+    <span class="divider"></span>
     <input id="project-name" type="text" placeholder="プロジェクト名" spellcheck="false">
     <button id="btn-save" type="button">保存</button>
     <select id="project-list" title="保存済みプロジェクトを読み込む"></select>
@@ -34,6 +36,19 @@
   </section>
   <aside id="params"></aside>
 </main>
+
+<div id="template-overlay" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head">
+      <strong>テンプレート</strong>
+      <span class="spacer"></span>
+      <input id="template-name" type="text" placeholder="名前" spellcheck="false">
+      <button id="btn-add-template" type="button">現在の設定を追加</button>
+      <button id="btn-close-templates" type="button">閉じる</button>
+    </div>
+    <div id="template-grid" class="grid"></div>
+  </div>
+</div>
 
 <script src="vendor/effekseer.js"></script>
 <script src="app.js"></script>
