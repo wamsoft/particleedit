@@ -97,17 +97,34 @@ main {
 }
 #frame-guide.hidden { display: none; }
 
-/* 中心 (パーティクルの発生位置) の目印 */
-#frame-guide::before,
-#frame-guide::after {
+/* パーティクルの発生位置。つかんで動かせる */
+#emitter-marker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  cursor: grab;
+  touch-action: none;
+}
+#emitter-marker.dragging { cursor: grabbing; }
+
+#emitter-marker::before,
+#emitter-marker::after {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  background: rgba(255, 255, 255, .28);
+  background: rgba(255, 255, 255, .34);
 }
-#frame-guide::before { width: 13px; height: 1px; transform: translate(-50%, -50%); }
-#frame-guide::after { width: 1px; height: 13px; transform: translate(-50%, -50%); }
+#emitter-marker::before { width: 15px; height: 1px; transform: translate(-50%, -50%); }
+#emitter-marker::after { width: 1px; height: 15px; transform: translate(-50%, -50%); }
+
+#emitter-marker:hover::before,
+#emitter-marker:hover::after,
+#emitter-marker.dragging::before,
+#emitter-marker.dragging::after { background: rgba(255, 255, 255, .8); }
 
 #frame-guide .frame-label {
   position: absolute;

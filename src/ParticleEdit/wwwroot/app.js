@@ -9,6 +9,8 @@ const GROUPS = [
     title: "エミッター",
     params: [
       { key: "emitRate",          label: "1秒あたりの発生数", min: 1,    max: 400,  step: 1,     value: 80 },
+      { key: "emitterX",          label: "発生位置 X",        min: -960, max: 960,  step: 1,     value: 0 },
+      { key: "emitterY",          label: "発生位置 Y",        min: -540, max: 540,  step: 1,     value: 0 },
       { key: "spawnRangeX",       label: "発生位置のばらつき X", min: 0, max: 600,  step: 1,     value: 0 },
       { key: "spawnRangeY",       label: "発生位置のばらつき Y", min: 0, max: 600,  step: 1,     value: 0 },
       { key: "speed",             label: "初速",             min: 0,    max: 30,   step: 0.05,  value: 5 },
@@ -266,12 +268,52 @@ function previewZoom(w, h) {
 
 function updateFrameGuide(zoom) {
   frameGuide.classList.toggle("hidden", !spec.showFrame);
-  if (!spec.showFrame) return;
+  if (spec.showFrame) {
+    frameGuide.style.width = `${spec.frameWidth * zoom}px`;
+    frameGuide.style.height = `${spec.frameHeight * zoom}px`;
+    frameLabel.textContent = `${spec.frameWidth} × ${spec.frameHeight}  (${Math.round(zoom * 100)}%)`;
+  }
 
-  frameGuide.style.width = `${spec.frameWidth * zoom}px`;
-  frameGuide.style.height = `${spec.frameHeight * zoom}px`;
-  frameLabel.textContent = `${spec.frameWidth} × ${spec.frameHeight}  (${Math.round(zoom * 100)}%)`;
+  // 発生位置の目印。ワールドは +Y が上、画面は +Y が下なので符号を反転する。
+  emitterMarker.style.transform =
+    `translate(${(spec.emitterX || 0) * zoom}px, ${-(spec.emitterY || 0) * zoom}px)`;
 }
+
+// --- 発生位置のドラッグ -----------------------------------------------------
+// 目印をつかんで動かす。スライダーと同じ値をいじるだけなので、
+// 離した時点ではなく動かしている間ずっとプレビューへ反映される。
+
+const emitterMarker = document.getElementById("emitter-marker");
+
+emitterMarker.addEventListener("pointerdown", (event) => {
+  const zoom = previewZoom(canvas.clientWidth, canvas.clientHeight);
+  const startX = event.clientX, startY = event.clientY;
+  const baseX = spec.emitterX || 0, baseY = spec.emitterY || 0;
+
+  emitterMarker.setPointerCapture(event.pointerId);
+  emitterMarker.classList.add("dragging");
+  event.preventDefault();
+
+  const onMove = (move) => {
+    spec.emitterX = Math.round(baseX + (move.clientX - startX) / zoom);
+    spec.emitterY = Math.round(baseY - (move.clientY - startY) / zoom);
+    // 動かしている間は該当のスライダーだけ追従させる
+    // (syncControls は形状プレビューの取得まで走るので毎フレームは重い)
+    controls.get("emitterX")(spec.emitterX);
+    controls.get("emitterY")(spec.emitterY);
+    requestRebuild();
+  };
+  const onUp = () => {
+    emitterMarker.classList.remove("dragging");
+    emitterMarker.removeEventListener("pointermove", onMove);
+    emitterMarker.removeEventListener("pointerup", onUp);
+    emitterMarker.removeEventListener("pointercancel", onUp);
+  };
+
+  emitterMarker.addEventListener("pointermove", onMove);
+  emitterMarker.addEventListener("pointerup", onUp);
+  emitterMarker.addEventListener("pointercancel", onUp);
+});
 
 // ---------------------------------------------------------------- 形状エディタ
 // 形は「手続き的に生成する」か「取り込んだ画像を使う」かの 2 通り。
@@ -854,16 +896,49 @@ async function runSelfTest() {
   await sleep(600);
   cycles.push({ cycle: "burst", hue: spec.hue, ...renderAndMeasure(40) });
 
+  // 発生位置: ずらした量がそのまま描画位置の移動になるか。
+  // 枠を消して等倍にしてから測る (枠があると縮小表示になって倍率が絡む)
+  const savedShowFrame = spec.showFrame;
+  spec.showFrame = false;
+  spec.emitRate = 400; spec.speed = 0; spec.speedVariance = 0;
+  spec.gravity = 0; spec.drag = 0; spec.life = 30; spec.lifeVariance = 0;
+  spec.emitterX = 0; spec.emitterY = 0;
+  await rebuild();
+  await sleep(150);
+  const atOrigin = renderAndMeasure(30);
+  // ずらす量はプレビュー領域からはみ出さない範囲にする (はみ出すと測れない)
+  const shiftX = 120, shiftY = -60;
+  spec.emitterX = shiftX; spec.emitterY = shiftY;
+  await rebuild();
+  await sleep(150);
+  const atOffset = renderAndMeasure(30);
+  spec.showFrame = savedShowFrame;
+
+  const dpr = canvas.width / Math.max(canvas.clientWidth, 1);
+  const mid = (r) => (r.x ? [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2] : null);
+  const from = mid(atOrigin), to = mid(atOffset);
+  // readPixels は左下原点なので、y はワールドと同じ向き
+  const emitter = from && to
+    ? {
+        dpr,
+        moved: [Math.round((to[0] - from[0]) / dpr), Math.round((to[1] - from[1]) / dpr)],
+        expected: [shiftX, shiftY],
+        ok: Math.abs((to[0] - from[0]) / dpr - shiftX) < 12
+          && Math.abs((to[1] - from[1]) / dpr - shiftY) < 12,
+      }
+    : { ok: false, reason: "描画されなかった", atOrigin, atOffset };
+
   // 保存 → 読み込みでパラメータが往復するか
   const saveName = "__selftest__";
-  spec.hue = 222; spec.life = 123;
+  spec.hue = 222; spec.life = 123; spec.emitterX = 250;
   await fetch("/api/projects/" + saveName, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec),
   });
-  spec.hue = 0; spec.life = 1;
+  spec.hue = 0; spec.life = 1; spec.emitterX = 0;
   const loaded = await (await fetch("/api/projects/" + saveName)).json();
   applySpec(loaded.spec);
-  const roundTrip = { hue: spec.hue, life: spec.life, ok: spec.hue === 222 && spec.life === 123 };
+  const roundTrip = { hue: spec.hue, life: spec.life, emitterX: spec.emitterX,
+    ok: spec.hue === 222 && spec.life === 123 && spec.emitterX === 250 };
   await fetch("/api/projects/" + saveName, { method: "DELETE" });
 
   // テンプレート: 一覧が取れて、適用すると描画され、サムネイルも焼けるか
@@ -906,8 +981,8 @@ async function runSelfTest() {
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && roundTrip.ok && templates.ok && shapes.ok,
-      blankCycles: blank.length, roundTrip, templates, shapes, cycles,
+      ok: blank.length === 0 && emitter.ok && roundTrip.ok && templates.ok && shapes.ok,
+      blankCycles: blank.length, emitter, roundTrip, templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }

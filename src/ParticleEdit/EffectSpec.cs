@@ -13,6 +13,13 @@ public sealed class EffectSpec
 	/// <summary>1 秒あたりの発生数</summary>
 	public float EmitRate { get; set; } = 80f;
 
+	/// <summary>
+	/// 発生位置。画面中央が原点、+Y が画面上方向 (このファイルの角度と同じ向き)。
+	/// エフェクトデータに埋め込まれるので、組み込み先でも同じ場所から出る。
+	/// </summary>
+	public float EmitterX { get; set; } = 0f;
+	public float EmitterY { get; set; } = 0f;
+
 	/// <summary>発生位置のばらつき (px)。矩形分布。</summary>
 	public float SpawnRangeX { get; set; } = 0f;
 	public float SpawnRangeY { get; set; } = 0f;

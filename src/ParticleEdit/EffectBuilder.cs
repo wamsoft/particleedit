@@ -154,9 +154,9 @@ public static class EffectBuilder
 		node.LocationValues.Type.SetValue(LocationValues.ParamaterType.PVA);
 		var pva = node.LocationValues.PVA;
 
-		// 発生位置のばらつき (矩形)
-		SetRange(pva.Location.X, 0f, spec.SpawnRangeX);
-		SetRange(pva.Location.Y, 0f, spec.SpawnRangeY);
+		// 発生位置と、そのばらつき (矩形)
+		SetRange(pva.Location.X, spec.EmitterX, spec.SpawnRangeX);
+		SetRange(pva.Location.Y, spec.EmitterY, spec.SpawnRangeY);
 		SetRange(pva.Location.Z, 0f, 0f);
 
 		// 初速: 角度 ± 広がり / 速さ ± ばらつき を XY の矩形範囲へ近似する。
