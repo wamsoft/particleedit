@@ -70,7 +70,12 @@ public static class EffectBuilder
 			Core.Root.SetFullPath(projectPath);
 
 			// Core.New() が既定のノードを 1 つ作っているのでそれを使う
-			var spawn = (Node)Core.Root.Children[0];
+			var top = (Node)Core.Root.Children[0];
+
+			// 発生位置を動かすなら、その動きだけを持つノードを 1 段かぶせる
+			var emitter = ApplyEmitter(top, spec);
+			var spawn = emitter == null ? top : top.AddChild();
+
 			spawn.Name.SetValue("Spawn");
 			ApplySpawn(spawn, spec);
 
@@ -93,14 +98,32 @@ public static class EffectBuilder
 		lock (Gate)
 		{
 			Build(spec);
-			var spawn = (Node)Core.Root.Children[0];
-			var node = (Node)spawn.Children[0];
+
+			// Root から 1 本道でぶら下がっているので、末端が粒、その親が発生ノード
+			var chain = new List<Node>();
+			Effekseer.Data.NodeBase cursor = Core.Root;
+			while (cursor.Children.Count > 0)
+			{
+				cursor = cursor.Children[0];
+				chain.Add((Node)cursor);
+			}
+			var node = chain[^1];
+			var spawn = chain[^2];
 			var spawnPva = spawn.LocationValues.PVA;
 			var pva = node.LocationValues.PVA;
 			var circle = node.GenerationLocationValues.Circle;
 			var ease = node.ScalingValues.Easing;
 			var color = node.DrawingValues.ColorAll;
 			var sb = new System.Text.StringBuilder();
+			if (chain.Count > 2)
+			{
+				var emitter = chain[0];
+				var fcurve = emitter.LocationValues.LocationFCurve.FCurve;
+				sb.AppendLine($"[{emitter.Name.Value}]  (描画なし)");
+				sb.AppendLine($"  Location.Type   = {emitter.LocationValues.Type.Value}");
+				sb.AppendLine($"    FCurve keys   = X {fcurve.X.Keys.Count()} / Y {fcurve.Y.Keys.Count()}  edge={fcurve.X.EndType.Value} timeline={fcurve.Timeline.Value}");
+				sb.AppendLine($"    Dynamic       = {emitter.LocationValues.Fixed.Location.IsDynamicEquationEnabled.Value} equations={Core.Dynamic.Equations.Values.Count}");
+			}
 			sb.AppendLine($"[{spawn.Name.Value}]  (描画なし)");
 			sb.AppendLine($"  Life            = {spawn.CommonValues.Life.Min}..{spawn.CommonValues.Life.Max}");
 			sb.AppendLine($"  GenerationTime  = {spawn.CommonValues.Generation.GenerationTime.Min}..{spawn.CommonValues.Generation.GenerationTime.Max}");
@@ -132,6 +155,108 @@ public static class EffectBuilder
 			return sb.ToString();
 		}
 	}
+
+	// ------------------------------------------------ 移動ノード (いちばん上)
+	// 発生位置を動かすときだけ挟まる、描画しない 1 インスタンスのノード。
+	// ここが動くと、下にぶら下がっている発生ノードごと動く。
+
+	/// <summary>動きの与え方に応じて上段のノードを仕立てる。要らなければ null を返す。</summary>
+	static Node? ApplyEmitter(Node node, EffectSpec spec)
+	{
+		var motion = spec.MotionName.Length > 0 ? spec.FindMotion(spec.MotionName) : null;
+		var baked = spec.EmitterMotion == "baked" && motion is { IsUsable: true };
+		var dynamic = spec.EmitterMotion == "dynamic";
+		if (!baked && !dynamic) return null;
+
+		node.Name.SetValue("Emitter");
+		node.DrawingValues.Type.SetValue(RendererValues.ParamaterType.None);
+
+		var cv = node.CommonValues;
+		cv.Removal.WhenLifeIsExtinct.SetValue(true);
+
+		if (baked && motion!.Loop)
+		{
+			// 軌道の繰り返しは、このノード自体を軌道の長さで生まれ変わらせて作る。
+			// FCurve 側の「ループ」は端の扱いに癖があり、たまに終端の値を拾った粒が
+			// 混じるので使っていない。親が消えても既に出ている粒は生き残る。
+			cv.MaxGeneration.Infinite.SetValue(true);
+			SetRange(cv.Life, motion.Frames, 0, min: 1);
+			SetRange(cv.Generation.GenerationTime, motion.Frames, 0f, min: 0.0001f);
+		}
+		else
+		{
+			// ずっと居座る 1 個
+			cv.MaxGeneration.Infinite.SetValue(false);
+			cv.MaxGeneration.Value.SetValue(1);
+			SetRange(cv.Life, 1000000, 0, min: 1);
+			SetRange(cv.Generation.GenerationTime, 1f, 0f, min: 0.0001f);
+		}
+
+		if (baked) ApplyBakedMotion(node, motion!);
+		else ApplyDynamicMotion(node);
+
+		return node;
+	}
+
+	/// <summary>軌道を位置の FCurve として埋め込む。組み込み先のコードは要らなくなる。</summary>
+	static void ApplyBakedMotion(Node node, MotionSpec motion)
+	{
+		node.LocationValues.Type.SetValue(LocationValues.ParamaterType.LocationFCurve);
+		var fcurve = node.LocationValues.LocationFCurve.FCurve;
+
+		// 既定の Percent は寿命に対する比率。フレームで書きたいので Time にする。
+		fcurve.Timeline.SetValue(Effekseer.Data.Value.FCurveTimelineMode.Time);
+
+		var points = motion.Points.OrderBy(p => p.Frame).ToList();
+		fcurve.X.SetKeys(points.Select(p => MakeKey(p.Frame, p.X)).ToArray());
+		fcurve.Y.SetKeys(points.Select(p => MakeKey(p.Frame, p.Y)).ToArray());
+		fcurve.Z.SetKeys(new[] { MakeKey(0, 0f) });
+
+		foreach (var axis in new[] { fcurve.X, fcurve.Y, fcurve.Z })
+		{
+			// 端は「一定」。繰り返しはノードの生まれ変わりで作る (ApplyEmitter 参照)。
+			axis.StartType.SetValue(Effekseer.Data.Value.FCurveEdge.Constant);
+			axis.EndType.SetValue(Effekseer.Data.Value.FCurveEdge.Constant);
+			// 書き出しはこの間隔でサンプリングされる。既定の 10 フレームだと
+			// 手で描いた軌道の細かい動きが落ちるので細かくする。
+			axis.Sampling.SetValue(2);
+		}
+	}
+
+	static Effekseer.Data.Value.FCurveKey<float> MakeKey(int frame, float value)
+	{
+		var key = new Effekseer.Data.Value.FCurveKey<float>(frame, value);
+		// 記録した点をそのまま繋ぐ。ベジェだと勝手に膨らむ。
+		key.SetInterpolationType(Effekseer.Data.Value.FCurveInterpolation.Linear);
+		key.SetFrame(frame);
+		key.SetValueAsFloat(value);
+		key.Commit();
+		return key;
+	}
+
+	/// <summary>
+	/// 位置を動的パラメータに束ねる。組み込み先が再生中に値を差し込んで動かす。
+	/// 入力は <see cref="DynamicInputX"/> / <see cref="DynamicInputY"/> 番。
+	///
+	/// Y の符号をここで反転しているので、組み込み先は画面の流儀 (中央原点・Y 下向き)
+	/// のまま渡せる。式の名前はバイナリに残らないので、対応はマニフェストで配る。
+	/// </summary>
+	static void ApplyDynamicMotion(Node node)
+	{
+		var equation = new DynamicEquation();
+		Core.Dynamic.Equations.Add(equation);
+		equation.Name.SetValue(DynamicEquationName);
+		equation.Code.SetValue($"@O.x = @In{DynamicInputX}\n@O.y = 0 - @In{DynamicInputY}\n@O.z = 0");
+
+		node.LocationValues.Type.SetValue(LocationValues.ParamaterType.Fixed);
+		var location = node.LocationValues.Fixed.Location;
+		location.IsDynamicEquationEnabled.SetValue(true);
+		location.DynamicEquation.SetValue(equation);
+	}
+
+	public const string DynamicEquationName = "emitter";
+	public const int DynamicInputX = 0;
+	public const int DynamicInputY = 1;
 
 	// -------------------------------------------------------- 発生ノード (親)
 	// 描画しない。粒 1 つにつき 1 インスタンスできて、その粒の「発生した場所」を持つ。

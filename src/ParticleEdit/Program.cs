@@ -155,8 +155,19 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 	using var ms = new MemoryStream();
 	using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
 	{
+		// エフェクト本体を先に入れる (プラグインは最初の .efkefc を本体とみなす)
 		AddEntry(zip, effectEntry, effectBytes!);
 		AddEntry(zip, result.TextureRelativePath, ShapeRenderer.GetPng(spec.Shape));
+
+		// 動的パラメータの名前と、軌道の一覧。組み込み先が要るときだけ入る。
+		if (!ExportManifest.IsEmpty(spec))
+		{
+			AddEntry(zip, ExportManifest.FileName, ExportManifest.Build(spec, effectEntry));
+			foreach (var motion in spec.Motions.Where(m => m.IsUsable))
+			{
+				AddEntry(zip, ExportManifest.MotionPath(motion), ExportManifest.BuildMotion(motion));
+			}
+		}
 	}
 
 	return Results.Bytes(ms.ToArray(), "application/zip", fileName);

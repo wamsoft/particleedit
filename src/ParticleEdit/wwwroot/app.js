@@ -25,6 +25,18 @@ const GROUPS = [
     ],
   },
   {
+    title: "エミッタの動き",
+    params: [
+      { key: "emitterMotion", label: "動かしかた", type: "select", value: "none",
+        options: [
+          ["none", "動かさない"],
+          ["baked", "軌道を焼き込む"],
+          ["dynamic", "組み込み先から動かす"],
+        ] },
+      { type: "motion-editor" },
+    ],
+  },
+  {
     title: "パーティクル",
     params: [
       { key: "life",              label: "寿命 (フレーム)",    min: 1,   max: 300, step: 1, value: 70 },
@@ -94,7 +106,7 @@ function setPath(obj, path, value) {
   target[last] = value;
 }
 
-const spec = { shape: { type: "procedural", imageId: null } };
+const spec = { shape: { type: "procedural", imageId: null }, motions: [], motionName: "" };
 for (const g of GROUPS) for (const p of g.params) if (p.key) setPath(spec, p.key, p.value);
 
 /// キー -> UI へ値を書き戻す関数。プロジェクトやテンプレートの読み込み時に使う。
@@ -133,6 +145,10 @@ function buildPanel() {
       }
       if (p.type === "frame-presets") {
         panel.appendChild(buildFramePresets());
+        continue;
+      }
+      if (p.type === "motion-editor") {
+        panel.appendChild(buildMotionEditor());
         continue;
       }
 
@@ -224,6 +240,7 @@ function syncControls() {
   }
   updateShapePreview();
   updateShapeRowsEnabled();
+  syncMotionEditor();
 }
 
 // ---------------------------------------------------------------- 画面サイズの枠
@@ -281,6 +298,8 @@ function updateFrameGuide(zoom) {
   // 発生位置の目印。ワールドは +Y が上、画面は +Y が下なので符号を反転する。
   emitterMarker.style.transform =
     `translate(${(spec.emitterX || 0) * zoom}px, ${-(spec.emitterY || 0) * zoom}px)`;
+
+  updateMotionPath(zoom);
 }
 
 // --- 発生位置のドラッグ -----------------------------------------------------
@@ -318,6 +337,206 @@ emitterMarker.addEventListener("pointerdown", (event) => {
   emitterMarker.addEventListener("pointerup", onUp);
   emitterMarker.addEventListener("pointercancel", onUp);
 });
+
+// ------------------------------------------------------------ エミッタの動き
+// プレビューの上をなぞって軌道を作る。作った軌道は名前を付けて何本でも持てる。
+//
+// 「軌道を焼き込む」… 選んだ 1 本をエフェクトに埋める。再生すればそう動く
+// 「組み込み先から動かす」… 発生位置を動的パラメータに繋いだ形で書き出し、
+//                          軌道は全部 JSON として同梱する。どれを流すかは向こうで決める
+
+const motionPath = document.getElementById("motion-path");
+const motionPolyline = motionPath.querySelector("polyline");
+const recordHint = document.getElementById("record-hint");
+
+let motionSelect = null;
+let motionNote = null;
+let motionLoop = null;
+
+function buildMotionEditor() {
+  const box = document.createElement("div");
+  box.className = "row";
+
+  const row = document.createElement("div");
+  row.className = "motion-row";
+
+  motionSelect = document.createElement("select");
+  motionSelect.addEventListener("input", () => {
+    spec.motionName = motionSelect.value;
+    syncMotionEditor();
+    requestRebuild();
+  });
+
+  const record = document.createElement("button");
+  record.type = "button";
+  record.textContent = "記録…";
+  record.addEventListener("click", startRecording);
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "削除";
+  remove.addEventListener("click", () => {
+    const index = spec.motions.findIndex((m) => m.name === spec.motionName);
+    if (index < 0) return;
+    spec.motions.splice(index, 1);
+    spec.motionName = spec.motions.length ? spec.motions[0].name : "";
+    syncMotionEditor();
+    requestRebuild();
+  });
+
+  row.append(motionSelect, record, remove);
+  box.appendChild(row);
+
+  const loopRow = document.createElement("label");
+  loopRow.className = "motion-row";
+  motionLoop = document.createElement("input");
+  motionLoop.type = "checkbox";
+  motionLoop.addEventListener("input", () => {
+    const motion = currentMotion();
+    if (!motion) return;
+    motion.loop = motionLoop.checked;
+    requestRebuild();
+  });
+  const loopText = document.createElement("span");
+  loopText.textContent = "終わったら頭へ戻す";
+  loopRow.append(motionLoop, loopText);
+  box.appendChild(loopRow);
+
+  motionNote = document.createElement("div");
+  motionNote.className = "motion-note";
+  box.appendChild(motionNote);
+
+  return box;
+}
+
+const currentMotion = () => spec.motions.find((m) => m.name === spec.motionName) || null;
+
+function syncMotionEditor() {
+  if (!motionSelect) return;
+
+  motionSelect.textContent = "";
+  if (!spec.motions.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "(軌道がありません)";
+    motionSelect.appendChild(option);
+  }
+  for (const motion of spec.motions) {
+    const option = document.createElement("option");
+    option.value = motion.name;
+    option.textContent = motion.name;
+    motionSelect.appendChild(option);
+  }
+  if (!currentMotion() && spec.motions.length) spec.motionName = spec.motions[0].name;
+  motionSelect.value = spec.motionName || "";
+
+  const motion = currentMotion();
+  motionLoop.checked = motion ? !!motion.loop : true;
+  motionLoop.disabled = !motion;
+  motionNote.textContent = motion
+    ? `${motion.points.length} 点 / ${motion.frames} フレーム (${(motion.frames / 60).toFixed(1)} 秒)`
+    : "「記録…」を押してプレビューの上をなぞる";
+}
+
+/// 選んでいる軌道をプレビューへ重ねる。
+function updateMotionPath(zoom) {
+  const motion = spec.emitterMotion === "none" ? null : currentMotion();
+  motionPath.classList.toggle("hidden", !motion || motion.points.length < 2);
+  if (!motion || motion.points.length < 2) return;
+
+  const cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2;
+  motionPolyline.setAttribute("points", motion.points
+    .map((p) => `${cx + (spec.emitterX + p.x) * zoom},${cy - (spec.emitterY + p.y) * zoom}`)
+    .join(" "));
+}
+
+// --- 記録 ---------------------------------------------------------------
+// 押している間の指の位置を毎フレーム拾う。フレーム番号は経過時間から出すので、
+// ゆっくりなぞればゆっくりな動きになる。
+
+let recording = null;
+
+function startRecording() {
+  if (recording) return;
+  recording = { points: [], startedAt: 0 };
+  recordHint.classList.remove("hidden");
+  canvas.style.cursor = "crosshair";
+}
+
+function stopRecording(save) {
+  if (!recording) return;
+  const points = recording.points;
+  recording = null;
+  recordHint.classList.add("hidden");
+  canvas.style.cursor = "";
+
+  if (!save || points.length < 2) return;
+
+  const name = (prompt("軌道の名前", suggestMotionName()) || "").trim();
+  if (!name) return;
+  if (!/^[^\\/:*?"<>|]+$/.test(name)) {
+    setStatus("軌道の名前に使えない文字があります", true);
+    return;
+  }
+
+  const motion = { name, frames: points[points.length - 1].frame, loop: true, points };
+  const existing = spec.motions.findIndex((m) => m.name === name);
+  if (existing >= 0) spec.motions[existing] = motion;
+  else spec.motions.push(motion);
+
+  spec.motionName = name;
+  if (spec.emitterMotion === "none") {
+    spec.emitterMotion = "baked";
+    controls.get("emitterMotion")("baked");
+  }
+  syncMotionEditor();
+  requestRebuild();
+  setStatus(`軌道「${name}」を記録しました`);
+}
+
+function suggestMotionName() {
+  for (let i = 1; ; i++) {
+    const name = `軌道${i}`;
+    if (!spec.motions.some((m) => m.name === name)) return name;
+  }
+}
+
+/// 画面の座標をワールド (発生位置からの相対) へ直す。
+function toMotionPoint(event, zoom) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.round((event.clientX - rect.left - rect.width / 2) / zoom - spec.emitterX),
+    y: Math.round(-((event.clientY - rect.top - rect.height / 2) / zoom) - spec.emitterY),
+  };
+}
+
+/// キャンバスは下で宣言しているので、起動時に呼んでもらう。
+function initMotionRecording() {
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!recording) return;
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    const zoom = previewZoom(canvas.clientWidth, canvas.clientHeight);
+    recording.startedAt = event.timeStamp;
+    recording.points = [{ frame: 0, ...toMotionPoint(event, zoom) }];
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (!recording || !recording.points.length) return;
+    const zoom = previewZoom(canvas.clientWidth, canvas.clientHeight);
+    const frame = Math.round((event.timeStamp - recording.startedAt) / (1000 / 60));
+    const last = recording.points[recording.points.length - 1];
+    if (frame <= last.frame) return;           // 同じフレームに 2 点は要らない
+    recording.points.push({ frame, ...toMotionPoint(event, zoom) });
+  });
+
+  canvas.addEventListener("pointerup", () => stopRecording(true));
+  canvas.addEventListener("pointercancel", () => stopRecording(false));
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") stopRecording(false);
+  });
+}
 
 // ---------------------------------------------------------------- 形状エディタ
 // 形は「手続き的に生成する」か「取り込んだ画像を使う」かの 2 通り。
@@ -936,6 +1155,33 @@ async function runSelfTest() {
       }
     : { ok: false, reason: "描画されなかった", atOrigin, atOffset };
 
+  // エミッタの動き: 軌道を焼き込むと、粒がその道すじに沿って残るか
+  spec.showFrame = false;
+  spec.speed = 0; spec.speedVariance = 0; spec.life = 200; spec.lifeVariance = 0;
+  spec.emitterX = 0; spec.emitterY = 0; spec.startSize = 12; spec.endSize = 12;
+  spec.motions = [{
+    name: "__selftest__", frames: 60, loop: false,
+    points: [{ frame: 0, x: -150, y: 0 }, { frame: 30, x: 0, y: 90 }, { frame: 60, x: 150, y: 0 }],
+  }];
+  spec.motionName = "__selftest__";
+  spec.emitterMotion = "none";
+  await rebuild();
+  await sleep(150);
+  const still = renderAndMeasure(60);
+  spec.emitterMotion = "baked";
+  await rebuild();
+  await sleep(150);
+  const along = renderAndMeasure(60);
+  spec.showFrame = savedShowFrame;
+
+  const width = (r) => (r.x ? r.x[1] - r.x[0] : 0);
+  const motion = {
+    stillWidth: width(still),
+    bakedWidth: width(along),
+    // 軌道の幅 300px ぶん広がっていれば、道すじに沿って出ている
+    ok: width(along) - width(still) > 250 * dpr,
+  };
+
   // 保存 → 読み込みでパラメータが往復するか
   const saveName = "__selftest__";
   spec.hue = 222; spec.life = 123; spec.emitterX = 250;
@@ -946,7 +1192,9 @@ async function runSelfTest() {
   const loaded = await (await fetch("/api/projects/" + saveName)).json();
   applySpec(loaded.spec);
   const roundTrip = { hue: spec.hue, life: spec.life, emitterX: spec.emitterX,
-    ok: spec.hue === 222 && spec.life === 123 && spec.emitterX === 250 };
+    motions: spec.motions.length, motionPoints: spec.motions[0] ? spec.motions[0].points.length : 0,
+    ok: spec.hue === 222 && spec.life === 123 && spec.emitterX === 250
+      && spec.motions.length === 1 && spec.motions[0].points.length === 3 };
   await fetch("/api/projects/" + saveName, { method: "DELETE" });
 
   // テンプレート: 一覧が取れて、適用すると描画され、サムネイルも焼けるか
@@ -989,8 +1237,8 @@ async function runSelfTest() {
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && emitter.ok && roundTrip.ok && templates.ok && shapes.ok,
-      blankCycles: blank.length, emitter, roundTrip, templates, shapes, cycles,
+      ok: blank.length === 0 && emitter.ok && motion.ok && roundTrip.ok && templates.ok && shapes.ok,
+      blankCycles: blank.length, emitter, motion, roundTrip, templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }
@@ -998,6 +1246,7 @@ async function runSelfTest() {
 // ---------------------------------------------------------------- 起動
 
 buildPanel();
+initMotionRecording();
 syncControls();
 refreshProjectList();
 

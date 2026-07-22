@@ -24,6 +24,27 @@ public sealed class EffectSpec
 	public float SpawnRangeX { get; set; } = 0f;
 	public float SpawnRangeY { get; set; } = 0f;
 
+	/// <summary>
+	/// 発生位置を動かす方法。
+	/// "none"    … 動かさない
+	/// "baked"   … <see cref="MotionName"/> の軌道をエフェクトに焼き込む。再生すればそう動く
+	/// "dynamic" … 組み込み先から動かす。位置を動的パラメータに束ねて書き出す
+	/// </summary>
+	public string EmitterMotion { get; set; } = "none";
+
+	/// <summary>"baked" のときに焼き込む軌道の名前。</summary>
+	public string MotionName { get; set; } = "";
+
+	/// <summary>
+	/// 軌道の一覧。"dynamic" で書き出すときは全部を別ファイルとして同梱するので、
+	/// 組み込み先が名前で選んで再生できる。
+	/// </summary>
+	public List<MotionSpec> Motions { get; set; } = new();
+
+	/// <summary>いま選ばれている軌道。無ければ null。</summary>
+	public MotionSpec? FindMotion(string name) =>
+		Motions.FirstOrDefault(m => m.Name == name);
+
 	/// <summary>初速 (px/frame)</summary>
 	public float Speed { get; set; } = 3f;
 	public float SpeedVariance { get; set; } = 1f;
