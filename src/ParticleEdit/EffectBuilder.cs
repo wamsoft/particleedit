@@ -57,7 +57,14 @@ public static class EffectBuilder
 		return File.Exists(path) ? File.ReadAllBytes(path) : null;
 	}
 
-	public static BuildResult Build(EffectSpec spec)
+	public static BuildResult Build(EffectSpec spec) => Build(spec, oneCycle: false);
+
+	/// <param name="oneCycle">
+	/// ループの 1 周期ぶんだけ発生させる。アニメパターンを焼くときに使う
+	/// (2 周期目以降は折り返し合成で作るので要らない)。<see cref="EffectSpec.Loop"/>
+	/// が立っていないときは何も変わらない。
+	/// </param>
+	public static BuildResult Build(EffectSpec spec, bool oneCycle)
 	{
 		lock (Gate)
 		{
@@ -75,6 +82,13 @@ public static class EffectBuilder
 			// 発生位置を動かすなら、その動きだけを持つノードを 1 段かぶせる
 			var emitter = ApplyEmitter(top, spec);
 			var spawn = emitter == null ? top : top.AddChild();
+
+			// ループするなら、周期を作るノードをもう 1 段かぶせる
+			if (spec.Loop)
+			{
+				ApplyLooper(spawn, spec, oneCycle);
+				spawn = spawn.AddChild();
+			}
 
 			spawn.Name.SetValue("Spawn");
 			ApplySpawn(spawn, spec);
@@ -115,14 +129,22 @@ public static class EffectBuilder
 			var ease = node.ScalingValues.Easing;
 			var color = node.DrawingValues.ColorAll;
 			var sb = new System.Text.StringBuilder();
-			if (chain.Count > 2)
+			var emitter = chain.FirstOrDefault(n => n.Name.Value == "Emitter");
+			var looper = chain.FirstOrDefault(n => n.Name.Value == "Loop");
+			if (emitter != null)
 			{
-				var emitter = chain[0];
 				var fcurve = emitter.LocationValues.LocationFCurve.FCurve;
 				sb.AppendLine($"[{emitter.Name.Value}]  (描画なし)");
 				sb.AppendLine($"  Location.Type   = {emitter.LocationValues.Type.Value}");
 				sb.AppendLine($"    FCurve keys   = X {fcurve.X.Keys.Count()} / Y {fcurve.Y.Keys.Count()}  edge={fcurve.X.EndType.Value} timeline={fcurve.Timeline.Value}");
 				sb.AppendLine($"    Dynamic       = {emitter.LocationValues.Fixed.Location.IsDynamicEquationEnabled.Value} equations={Core.Dynamic.Equations.Values.Count}");
+			}
+			if (looper != null)
+			{
+				sb.AppendLine($"[{looper.Name.Value}]  (描画なし)");
+				sb.AppendLine($"  MaxGeneration   = {looper.CommonValues.MaxGeneration.Value.Value} infinite={looper.CommonValues.MaxGeneration.Infinite.Value}");
+				sb.AppendLine($"  GenerationTime  = {looper.CommonValues.Generation.GenerationTime.Min}  (= 周期)");
+				sb.AppendLine($"  Life            = {looper.CommonValues.Life.Min}  (= 発生する長さ)");
 			}
 			sb.AppendLine($"[{spawn.Name.Value}]  (描画なし)");
 			sb.AppendLine($"  Life            = {spawn.CommonValues.Life.Min}..{spawn.CommonValues.Life.Max}");
@@ -257,6 +279,42 @@ public static class EffectBuilder
 	public const string DynamicEquationName = "emitter";
 	public const int DynamicInputX = 0;
 	public const int DynamicInputY = 1;
+
+	// ------------------------------------------------------------ ループノード
+	// ループするときだけ挟まる、描画しない中継ノード。
+	//
+	// 周期 N フレームおきに生まれ直し、そのうち B フレームだけ生きる。生きている間
+	// しか下の発生ノードを作らないので、B < N なら「どっと出て、消えて、また出る」
+	// という繰りかえしになる (B = N なら切れ目なく出し続ける)。
+	// 既に出ている粒は「親が消えたら消える」を立てていないので生き残る。
+
+	/// <summary>ループの周期。1 未満は無いものとして扱う。</summary>
+	public static int LoopFrames(EffectSpec spec) => Math.Max(spec.LoopFrames, 1);
+
+	/// <summary>1 周期のうち発生する長さ。周期を超えることはない。</summary>
+	public static int LoopEmitFrames(EffectSpec spec) =>
+		Math.Clamp(spec.LoopEmitFrames, 1, LoopFrames(spec));
+
+	static void ApplyLooper(Node node, EffectSpec spec, bool oneCycle)
+	{
+		node.Name.SetValue("Loop");
+		node.DrawingValues.Type.SetValue(RendererValues.ParamaterType.None);
+
+		var cv = node.CommonValues;
+
+		// アニメパターンを焼くときは 1 周期ぶんだけ。折り返して重ねると
+		// 「ずっと繰りかえしている状態」がぴったり再現できる (PatternWriter 参照)。
+		cv.MaxGeneration.Infinite.SetValue(!oneCycle);
+		if (oneCycle) cv.MaxGeneration.Value.SetValue(1);
+
+		cv.Removal.WhenLifeIsExtinct.SetValue(true);
+		SetRange(cv.Life, LoopEmitFrames(spec), 0, min: 1);
+		SetRange(cv.Generation.GenerationTime, LoopFrames(spec), 0f, min: 0.0001f);
+
+		// 上のノード (エミッタ) が動くならそれに追従させる。「発生したとき」だと
+		// 周期の頭の位置に貼り付いてしまい、軌道の途中から出なくなる。
+		cv.LocationEffectType.SetValue(TranslationParentEffectType.Already);
+	}
 
 	// -------------------------------------------------------- 発生ノード (親)
 	// 描画しない。粒 1 つにつき 1 インスタンスできて、その粒の「発生した場所」を持つ。

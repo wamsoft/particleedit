@@ -45,6 +45,31 @@ public sealed class EffectSpec
 	public MotionSpec? FindMotion(string name) =>
 		Motions.FirstOrDefault(m => m.Name == name);
 
+	// --- ループ ---
+	/// <summary>
+	/// 同じパターンを繰りかえす。発生ノードごと <see cref="LoopFrames"/> フレームおきに
+	/// 作り直すので、1 周期のうち発生する長さを短くすると
+	/// 「どっと出て、消えて、また出る」が作れる。
+	///
+	/// Effekseer 自体には「エフェクト全体をループ再生する」指定が無い (エディタの
+	/// IsLoop はプレビュー用で .efk に入らない) ので、ノードの生まれ変わりで作る。
+	/// アニメパターンの書き出しはこの周期をそのまま使う。
+	/// </summary>
+	public bool Loop { get; set; } = false;
+
+	/// <summary>ループの周期 (フレーム)。</summary>
+	public int LoopFrames { get; set; } = 60;
+
+	/// <summary>
+	/// 1 周期のうち、粒を発生させる長さ (フレーム)。
+	/// 周期と同じなら切れ目なく出し続ける (ループしないときと同じ見た目)。
+	/// </summary>
+	public int LoopEmitFrames { get; set; } = 60;
+
+	/// <summary>粒がいちばん長生きした場合の寿命 (フレーム)。</summary>
+	[JsonIgnore]
+	public int MaxParticleLife => Life + Math.Abs(LifeVariance) / 2;
+
 	/// <summary>初速 (px/frame)</summary>
 	public float Speed { get; set; } = 3f;
 	public float SpeedVariance { get; set; } = 1f;
@@ -129,6 +154,25 @@ public sealed class EffectSpec
 	public float PlayY { get; set; } = 0f;
 	public float PlayZoom { get; set; } = 100f;
 	public float PlayRotation { get; set; } = 0f;
+
+	// アニメパターンの焼きかた。エフェクトデータには入らないが、
+	// 焼き直すたびに入れ直すのは面倒なのでプロジェクトには残す。
+
+	/// <summary>"sheet" (1 枚に並べる) / "frames" (連番 PNG) / "amv" (吉里吉里の AlphaMovie)</summary>
+	public string PatternFormat { get; set; } = "sheet";
+
+	/// <summary>1 コマの大きさ (px)。16 の倍数 (.amv の決まり)。</summary>
+	public int PatternWidth { get; set; } = 256;
+	public int PatternHeight { get; set; } = 256;
+
+	/// <summary>シートに並べるときの横の枚数。</summary>
+	public int PatternColumns { get; set; } = 8;
+
+	/// <summary>何フレームおきに 1 コマ焼くか。2 なら枚数が半分になる。</summary>
+	public int PatternStep { get; set; } = 1;
+
+	/// <summary>.amv の JPEG 品質 (アルファは可逆なので影響しない)。</summary>
+	public int PatternQuality { get; set; } = 92;
 
 	/// <summary>組み込み先の画面サイズ。プレビューに枠として重ねて、大きさの当たりを付ける。</summary>
 	public int FrameWidth { get; set; } = 1280;

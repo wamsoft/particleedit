@@ -50,7 +50,7 @@ header select {
 header input[type=text] { width: 150px; }
 header input[type=text]::placeholder { color: #676c78; }
 
-.status { color: var(--muted); font-size: 12px; margin-right: 8px; }
+.status { color: var(--muted); font-size: 12px; }
 .status.error { color: #ff7b72; }
 
 button {
@@ -69,8 +69,21 @@ button.primary:hover { background: #63b0ff; }
 
 main {
   display: flex;
-  height: calc(100% - 48px);
+  /* 上下のバーを除いた残り */
+  height: calc(100% - 48px - 26px);
 }
+
+/* 下のバー。左に経過とメッセージ、右にプレビューの計測値 */
+footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 26px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+footer .spacer { flex: 1 1 auto; }
 
 #preview {
   position: relative;
@@ -138,13 +151,10 @@ main {
 }
 
 #stats {
-  position: absolute;
-  left: 12px;
-  bottom: 10px;
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
+  white-space: nowrap;
 }
 
 #params {
@@ -499,4 +509,83 @@ input[type=color] {
 .row > button.wide {
   width: 100%;
   padding: 6px 10px;
+}
+
+/* ---- アニメパターン ---- */
+
+#pattern-body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+}
+
+.pattern-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 10px 20px;
+}
+.pattern-form label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pattern-form select,
+.pattern-form input {
+  width: 180px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.pattern-form input { width: 96px; }
+.pattern-form label.hidden { display: none; }   /* その形式に関わらない項目は出さない */
+
+#pattern-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 14px 0;
+}
+
+/* 焼いた絵の確認。市松模様を敷いて透明なところを見せる */
+.pattern-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background-color: #2a2c33;
+  background-image:
+    linear-gradient(45deg, #22242a 25%, transparent 25%, transparent 75%, #22242a 75%),
+    linear-gradient(45deg, #22242a 25%, transparent 25%, transparent 75%, #22242a 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+/* コマの外周。透明な絵は端が分からないので、大きさの当たりを付けるための枠 */
+.pattern-preview canvas {
+  max-width: 100%;
+  max-height: 40vh;
+  image-rendering: pixelated;
+  outline: 1px dashed rgba(77, 163, 255, .8);
+}
+
+.pattern-size-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.pattern-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }

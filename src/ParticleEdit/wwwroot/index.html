@@ -19,8 +19,8 @@
     <select id="project-list" title="保存済みプロジェクトを読み込む"></select>
 
     <span class="spacer"></span>
-    <span id="status" class="status">起動中…</span>
 
+    <button id="btn-pattern" type="button" title="ループを絵の連なりに焼く">アニメパターン…</button>
     <select id="export-format" title="エクスポート形式">
       <option value="efkzip">efkzip (吉里吉里プラグイン用)</option>
       <option value="efk">efk + テクスチャ (zip)</option>
@@ -37,10 +37,16 @@
     <svg id="motion-path" class="hidden"><polyline /></svg>
     <div id="emitter-marker" title="ドラッグで発生位置を動かす"></div>
     <div id="record-hint" class="hidden">プレビューの上をドラッグして軌道を描く (離すと終わり / Esc でやめる)</div>
-    <div id="stats"></div>
   </section>
   <aside id="params"></aside>
 </main>
+
+<!-- 下のバー。上のバーは操作だけにして、読みもの (経過とメッセージ) はこちらへ寄せている -->
+<footer>
+  <span id="status" class="status">起動中…</span>
+  <span class="spacer"></span>
+  <span id="stats"></span>
+</footer>
 
 <div id="template-overlay" class="overlay hidden">
   <div class="sheet">
@@ -52,6 +58,57 @@
       <button id="btn-close-templates" type="button">閉じる</button>
     </div>
     <div id="template-grid" class="grid"></div>
+  </div>
+</div>
+
+<div id="pattern-overlay" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head">
+      <strong>アニメパターン</strong>
+      <span class="spacer"></span>
+      <button id="btn-close-pattern" type="button">閉じる</button>
+    </div>
+    <div id="pattern-body">
+      <div class="pattern-form">
+        <label>形式
+          <select id="pattern-format">
+            <option value="sheet">シート PNG 1 枚 (zip)</option>
+            <option value="frames">連番 PNG (zip)</option>
+            <option value="amv">amv (吉里吉里 AlphaMovie)</option>
+          </select>
+        </label>
+        <label>なめらかさ
+          <select id="pattern-fps"></select>
+        </label>
+        <label>1 コマの幅
+          <input id="pattern-width" type="number" min="16" max="2560" step="16">
+        </label>
+        <label>1 コマの高さ
+          <input id="pattern-height" type="number" min="16" max="2560" step="16">
+        </label>
+        <label data-format="sheet">横に並べる枚数
+          <input id="pattern-columns" type="number" min="1" max="32" step="1">
+        </label>
+        <label data-format="amv">JPEG 品質
+          <input id="pattern-quality" type="number" min="50" max="100" step="1">
+        </label>
+      </div>
+
+      <div class="pattern-size-actions">
+        <button id="btn-pattern-screen" type="button"></button>
+      </div>
+
+      <p id="pattern-note" class="note"></p>
+
+      <div class="pattern-preview">
+        <canvas id="pattern-canvas"></canvas>
+      </div>
+
+      <div class="pattern-actions">
+        <button id="btn-bake" type="button">試し焼き (確認だけ)</button>
+        <button id="btn-export-pattern" type="button" class="primary">書き出す</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -70,7 +127,7 @@
         すぐ反映されます。パラメータはタブで分かれていて、選んだタブは次に開いたときも残ります。
       </p>
       <table>
-        <tr><th>発生</th><td>いくつ・どこから・どちらへどれくらいの速さで出るか。重力と空気抵抗もここ</td></tr>
+        <tr><th>発生</th><td>いくつ・どこから・どちらへどれくらいの速さで出るか。重力と空気抵抗、ループもここ</td></tr>
         <tr><th>粒</th><td>1 粒の寿命・大きさ・回転</td></tr>
         <tr><th>色</th><td>色相・彩度・明度と、それぞれのばらつき。透明度</td></tr>
         <tr><th>形</th><td>粒の形と合成方法</td></tr>
@@ -146,6 +203,58 @@
       <p>
         粒が軌跡として残るかどうかは「発生」タブの <strong>発生位置を動かしたとき</strong> で決まります
         (既定は「その場に置き去り」= 軌跡になる)。発生位置を動かさないなら、どちらでも見た目は変わりません。
+      </p>
+
+      <h3>ループ</h3>
+      <p>
+        「発生」タブの <strong>同じパターンを繰りかえす</strong> を入れると、
+        指定した<strong>周期</strong>ごとに発生をやり直すようになります。
+        <strong>発生する長さ</strong>を周期より短くすると、
+        「どっと出て、消えて、また出る」という繰りかえしが作れます
+        (周期と同じにすれば、いままでどおり出しっぱなしです)。
+      </p>
+      <p class="note">
+        Effekseer 自体には「エフェクト全体をループ再生する」指定がありません
+        (公式エディタの IsLoop はプレビュー用で、データには入りません)。
+        ここでは<strong>発生用のノードを周期ごとに作り直す</strong>ことで繰りかえしにしています。
+        粒ごとの乱数は周回ごとに引き直されるので、1 周ごとに寸分たがわず同じ、にはなりません。
+      </p>
+      <p>
+        粒の寿命が周期より長いときは、前の周の粒が次の周へはみ出して重なります。
+        それでも繰りかえしは途切れません。焼き込んだ軌道と一緒に使うときは、
+        <strong>軌道の長さと周期を揃えて</strong>ください (ずれていると 1 周ごとに位置がずれます)。
+      </p>
+
+      <h3>アニメパターン</h3>
+      <p>
+        ループを入れておくと、ヘッダの <strong>アニメパターン…</strong> から
+        エフェクトを絵の連なりに焼けます。Effekseer のランタイムが要らなくなるので、
+        軽く済ませたいときや、プラグインを使わない場所で出したいときに。
+      </p>
+      <table>
+        <tr><th>シート PNG</th><td>1 枚に格子状に並べたもの。矩形を切り替えて使います</td></tr>
+        <tr><th>連番 PNG</th><td>1 コマ 1 枚。zip でまとめて出ます</td></tr>
+        <tr><th>amv</th><td>吉里吉里の AlphaMovie プラグインが読む動画。コマ数が多いときはこれがいちばん小さくなります</td></tr>
+      </table>
+      <p>
+        <strong>継ぎ目のないループになります。</strong>
+        1 周期ぶんだけ発生するエフェクトを裏で作り、粒が消えるまで回してから、
+        周期ごとに折り返して重ねているためです。最後のコマから最初のコマへ戻っても飛びません。
+        焼く前に <strong>試し焼き</strong> で繰りかえしを確かめられます (市松模様が透明なところです)。
+      </p>
+      <p>
+        <strong>なめらかさ</strong> はコマ数の決めかたです。エディタは 60fps 基準なので、
+        30 fps を選べば 2 フレームおきに 1 コマ焼かれて枚数が半分になります (見た目の速さは変わりません)。
+        <strong>1 コマの大きさ</strong>は <strong>画面サイズにする</strong> ボタンで
+        「表示」タブの画面サイズに合わせられます。焼く前でも、確認欄の点線がそのコマの大きさです。
+      </p>
+      <p class="note">
+        写すのはプレビューの中央です。「動き」タブの再生側の操作 (位置・ズーム・回転) は掛かりません。
+        1 コマの大きさは 16 の倍数に丸められます (amv の決まりに合わせています)。
+        大きなコマを高いなめらかさで焼くと落ちるほどメモリを食うので、
+        見込みが大きすぎるときは焼く前に断ります (案内に必要量が出ます)。
+        色は加算のエフェクトでも<strong>アルファ付き</strong>で出るので、
+        組み込み先では加算合成でも通常合成でも使えます。
       </p>
 
       <h3>形</h3>

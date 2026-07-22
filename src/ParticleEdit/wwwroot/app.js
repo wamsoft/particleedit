@@ -39,6 +39,18 @@ const GROUPS = [
     ],
   },
   {
+    tab: "発生", title: "ループ",
+    params: [
+      { key: "loop", label: "同じパターンを繰りかえす", type: "toggle", value: false,
+        help: "周期ごとに発生をやり直す。アニメパターンの書き出しはこの周期を使う" },
+      { key: "loopFrames", label: "周期 (フレーム)", min: 2, max: 300, step: 1, value: 60,
+        help: "何フレームで一巡するか (60 でおよそ 1 秒)" },
+      { key: "loopEmitFrames", label: "発生する長さ (フレーム)", min: 1, max: 300, step: 1, value: 60,
+        help: "周期のうち粒を出している長さ。周期より短くすると休みができる" },
+      { type: "loop-note" },
+    ],
+  },
+  {
     tab: "粒", title: "パーティクル",
     params: [
       { key: "life", label: "寿命 (フレーム)", min: 1, max: 300, step: 1, value: 70,
@@ -165,7 +177,12 @@ function setPath(obj, path, value) {
   target[last] = value;
 }
 
-const spec = { shape: { type: "procedural", curve: "polygon", imageId: null }, motions: [], motionName: "" };
+// つまみを持たないもの (形・軌道・アニメパターンの焼きかた) はここで初期値を与える
+const spec = {
+  shape: { type: "procedural", curve: "polygon", imageId: null }, motions: [], motionName: "",
+  patternFormat: "sheet", patternWidth: 256, patternHeight: 256,
+  patternColumns: 8, patternStep: 1, patternQuality: 92,
+};
 for (const g of GROUPS) for (const p of g.params) if (p.key) setPath(spec, p.key, p.value);
 
 /// キー -> UI へ値を書き戻す関数。プロジェクトやテンプレートの読み込み時に使う。
@@ -175,6 +192,7 @@ const controls = new Map();
 const EDITOR_ONLY_KEYS = new Set([
   "backgroundColor", "backgroundBrightness", "showFrame", "frameWidth", "frameHeight",
   "playX", "playY", "playZoom", "playRotation",
+  "patternFormat", "patternWidth", "patternHeight", "patternColumns", "patternStep", "patternQuality",
 ]);
 
 // ---------------------------------------------------------------- UI 構築
@@ -250,6 +268,12 @@ function buildPanel() {
         page.appendChild(buildEmitterReset());
         continue;
       }
+      if (p.type === "loop-note") {
+        loopNoteEl = document.createElement("p");
+        loopNoteEl.className = "note";
+        page.appendChild(loopNoteEl);
+        continue;
+      }
 
       const row = document.createElement("div");
       row.className = "row";
@@ -272,7 +296,9 @@ function buildPanel() {
         input.checked = !!p.value;
         input.addEventListener("input", () => {
           setPath(spec, p.key, input.checked);
-          // 枠の表示切り替えはエフェクトの作り直しを伴わない
+          // 枠の表示のような見た目だけのものは作り直さない
+          if (!EDITOR_ONLY_KEYS.has(p.key)) requestRebuild();
+          if (p.key === "loop") updateLoopRows();
         });
         controls.set(p.key, (v) => { input.checked = !!v; });
         label.appendChild(input);
@@ -366,7 +392,54 @@ function syncControls() {
   }
   updateShapePreview();
   updateShapeRowsEnabled();
+  updateLoopRows();
+  syncPatternControls();
   syncMotionEditor();
+}
+
+// ---------------------------------------------------------------- ループ
+// 周期ごとに発生をやり直す。エフェクト側の作りは EffectBuilder の
+// 「ループノード」を参照。ここは案内を出すのと、行の有効・無効だけ。
+
+let loopNoteEl = null;
+
+const maxParticleLife = () => Math.round(spec.life + Math.abs(spec.lifeVariance) / 2);
+
+/// 焼いたら何コマになるか。
+const patternFrameCount = () =>
+  Math.ceil(Math.max(2, Math.round(spec.loopFrames)) / Math.max(1, Math.round(spec.patternStep)));
+
+function updateLoopRows() {
+  for (const key of ["loopFrames", "loopEmitFrames"]) {
+    const row = document.querySelector(`#params .row[data-key="${key}"]`);
+    if (!row) continue;
+    row.classList.toggle("disabled", !spec.loop);
+    const input = row.querySelector("input");
+    if (input) input.disabled = !spec.loop;
+  }
+
+  if (!loopNoteEl) return;
+  if (!spec.loop) {
+    loopNoteEl.textContent =
+      "切っている間は出しっぱなしです。アニメパターンを焼くには周期が要るので、ここを入れてください。";
+    return;
+  }
+
+  const period = Math.max(2, Math.round(spec.loopFrames));
+  const emit = Math.min(Math.round(spec.loopEmitFrames), period);
+  const notes = [`1 周 ${(period / 60).toFixed(2)} 秒 / 焼くと ${patternFrameCount()} コマ。`];
+
+  const tail = emit + maxParticleLife();
+  if (tail > period) {
+    notes.push(`粒は周期を ${tail - period} フレームはみ出すので、前の周の残りと重なります (それでも繰りかえしはつながります)。`);
+  }
+
+  const motion = currentMotion();
+  if (spec.emitterMotion === "baked" && motion && motion.frames !== period) {
+    notes.push(`焼き込む軌道は ${motion.frames} フレームです。周期と揃えないと 1 周ごとに位置がずれます。`);
+  }
+
+  loopNoteEl.textContent = notes.join(" ");
 }
 
 // ---------------------------------------------------------------- 画面サイズの枠
@@ -1191,13 +1264,18 @@ async function exportEffect() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(spec),
   });
-  if (!res.ok) { setStatus("書き出しに失敗: " + res.status, true); return; }
+  await receiveFile(res, "effect.zip");
+}
+
+/// 書き出しの返事を受け取る。ファイルとして降ってきたらダウンロードさせる。
+async function receiveFile(res, fallbackName) {
+  if (!res.ok) { setStatus("書き出しに失敗: " + (await res.text() || res.status), true); return; }
 
   // particleedit.json で書き出し先が決まっているときは、サーバがそこへ置いて
   // 置いた場所を返してくる (ブラウザからは保存先を選べないため)
   if ((res.headers.get("Content-Type") || "").startsWith("application/json")) {
     const done = await res.json();
-    setStatus(`書き出しました: ${done.path}`);
+    setStatus(`書き出しました: ${done.path}${done.note ? "  (" + done.note + ")" : ""}`);
     return;
   }
 
@@ -1207,7 +1285,7 @@ async function exportEffect() {
   const blob = await res.blob();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = matched ? decodeURIComponent(matched[1]) : "effect.zip";
+  a.download = matched ? decodeURIComponent(matched[1]) : fallbackName;
   a.click();
   URL.revokeObjectURL(a.href);
   setStatus(`書き出しました: ${a.download}`);
@@ -1236,6 +1314,7 @@ let rebuildPending = false;
 let generation = 0;      // 追い越された古いビルドを捨てるための世代番号
 
 function requestRebuild() {
+  updateLoopRows();
   if (rebuildInFlight) { rebuildPending = true; return; }
   rebuild();
 }
@@ -1272,8 +1351,9 @@ async function rebuild() {
 }
 
 /// パラメータからエフェクトのバイナリを作る。
-async function buildEffect(forSpec) {
-  const res = await fetch("/api/effect.efk", {
+/// cycle に "one" を渡すと、ループの 1 周期ぶんだけ発生するものになる (アニメパターン用)。
+async function buildEffect(forSpec, cycle) {
+  const res = await fetch("/api/effect.efk" + (cycle ? "?cycle=" + cycle : ""), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(forSpec),
@@ -1542,6 +1622,7 @@ document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") {
     overlay.classList.add("hidden");
     showHelp(false);
+    showPattern(false);
   }
   // F1 でヘルプ。ブラウザ既定のヘルプは邪魔なので止める
   if (ev.key === "F1") {
@@ -1549,6 +1630,363 @@ document.addEventListener("keydown", (ev) => {
     showHelp(helpOverlay.classList.contains("hidden"));
   }
 });
+
+// ---------------------------------------------------------------- アニメパターン
+// ループの周期を使って、エフェクトを絵の連なりに焼く。
+//
+// 継ぎ目のない繰りかえしにするための仕掛け:
+//
+//   1. 「1 周期ぶんだけ発生する」エフェクトを作る (/api/effect.efk?cycle=one)
+//   2. 粒が全部消えるまで回して、1 フレームずつ絵を取る
+//   3. 周期ごとに折り返して重ねる。i コマ目 = 0 周目の i + 1 周目の i + ...
+//
+// 3 がすべてで、これは「ずっと繰りかえしている状態」と数式のうえで同じものになる。
+// 1 周期ぶんの粒を N フレームおきに何度も重ねたものが、まさに繰りかえしの絵だから。
+// 周期をまたいで生き残る粒があっても、その粒は次の周の頭に重なって出てくる。
+//
+// 重ねかたは合成方法に合わせる。加算はそのまま足す。通常は「後の周ほど古い粒」なので
+// 下へ潜らせる。どちらもアルファ乗算のまま計算して、最後に割り戻す。
+
+const PATTERN_UNIT = 16;   // .amv が幅・高さに要求する倍数
+
+const patternOverlay = document.getElementById("pattern-overlay");
+const patternNoteEl = document.getElementById("pattern-note");
+const patternCanvas = document.getElementById("pattern-canvas");
+
+let bakeCanvas = null, bakeGl = null, bakeContext = null;
+let baking = false;
+
+const roundUnit = (v) =>
+  Math.max(PATTERN_UNIT, Math.round(v / PATTERN_UNIT) * PATTERN_UNIT);
+
+/// 焼く先の WebGL。プレビューとは別にしておかないと、
+/// 焼いている間に表示中の絵を壊してしまう。
+function initBakeContext(width, height) {
+  if (!bakeContext) {
+    bakeCanvas = document.createElement("canvas");
+    // 背景を透明にして、粒だけをアルファ付きで取り出す
+    bakeGl = bakeCanvas.getContext("webgl", { alpha: true, depth: true, antialias: true });
+    bakeContext = effekseer.createContext();
+    bakeContext.init(bakeGl, { instanceMaxCount: INSTANCE_MAX, squareMaxCount: 20000 });
+  }
+  bakeCanvas.width = width;
+  bakeCanvas.height = height;
+  return bakeContext;
+}
+
+/// プレビューの時計とは別に、t フレーム目の発生位置を差し込む。
+/// 「組み込み先から動かす」で書き出すエフェクトも、焼くときは動いていてほしいため。
+function driveMotionAt(target, frame) {
+  if (spec.emitterMotion !== "dynamic") return;
+  const active = currentMotion();
+  if (!active || !active.points || active.points.length < 2) return;
+
+  const frames = active.frames > 0 ? active.frames : 1;
+  const at = active.loop ? ((frame - 1) % frames) + 1 : Math.min(frame, frames);
+  const point = motionPositionAt(active, at);
+  if (!point) return;
+
+  target.setDynamicInput(0, point.x);
+  target.setDynamicInput(1, -point.y);
+}
+
+async function bakePattern() {
+  const period = Math.max(2, Math.round(spec.loopFrames));
+  const step = patternStep();
+  const width = roundUnit(spec.patternWidth);
+  const height = roundUnit(spec.patternHeight);
+  const emit = Math.min(Math.round(spec.loopEmitFrames), period);
+  const count = patternFrameCount();
+
+  if (patternMemory() > PATTERN_MEMORY_LIMIT) {
+    throw new Error(`この大きさと枚数だと ${Math.round(patternMemory() / 1024 / 1024)}MB 要ります`);
+  }
+
+  // 最後に出た粒が消えるまで回す。周期の切りのいいところまで回さないと折り返せない。
+  const cycles = Math.max(1, Math.ceil((emit + maxParticleLife() + 2) / period));
+  const total = cycles * period;
+
+  const ctx = initBakeContext(width, height);
+  const created = await loadEffectOn(ctx, await buildEffect(spec, "one"));
+  ctx.stopAll();
+  const bakeHandle = ctx.play(created, 0, 0, 0);
+
+  const plane = width * height * 4;
+  const accumulator = new Float32Array(count * plane);   // アルファ乗算済みのまま貯める
+  const pixels = new Uint8Array(plane);
+  const additive = spec.blend !== "blend";
+
+  for (let t = 0; t < total; t++) {
+    // 間引いたぶんは絵が要らない。更新だけは毎フレーム回す (飛ばすと動きが変わる)
+    const phase = t % period;
+    const keep = phase % step === 0;
+
+    driveMotionAt(bakeHandle, t + 1);
+    ctx.update(1.0);
+
+    if (keep) {
+      bakeGl.viewport(0, 0, width, height);
+      bakeGl.clearColor(0, 0, 0, 0);
+      bakeGl.clear(bakeGl.COLOR_BUFFER_BIT | bakeGl.DEPTH_BUFFER_BIT);
+      ctx.setProjectionOrthographic(width, height, 1, 4000);
+      ctx.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
+      ctx.draw();
+      // draw の直後に読む。間に何か挟むと描画結果が消えていることがある
+      bakeGl.readPixels(0, 0, width, height, bakeGl.RGBA, bakeGl.UNSIGNED_BYTE, pixels);
+      foldFrame(accumulator, phase / step * plane, pixels, additive);
+    }
+
+    if (phase === period - 1) {
+      setStatus(`焼いています… ${Math.round((t + 1) / total * 100)}%`);
+      await new Promise(requestAnimationFrame);   // 画面が固まらないよう息継ぎ
+    }
+  }
+
+  ctx.stopAll();
+  ctx.releaseEffect(created);
+
+  const frames = [];
+  for (let i = 0; i < count; i++) frames.push(resolveFrame(accumulator, i * plane, width, height));
+  return { frames, width, height, period, step };
+}
+
+/// 1 フレームぶんを、その周期位置へ重ねる。
+function foldFrame(accumulator, base, pixels, additive) {
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (additive) {
+      accumulator[base + i] += pixels[i];
+      accumulator[base + i + 1] += pixels[i + 1];
+      accumulator[base + i + 2] += pixels[i + 2];
+      accumulator[base + i + 3] += pixels[i + 3];
+      continue;
+    }
+
+    // 後から重ねるものほど古い周の粒なので、既にあるものの下へ潜らせる
+    const under = 1 - accumulator[base + i + 3] / 255;
+    if (under <= 0) continue;
+    accumulator[base + i] += pixels[i] * under;
+    accumulator[base + i + 1] += pixels[i + 1] * under;
+    accumulator[base + i + 2] += pixels[i + 2] * under;
+    accumulator[base + i + 3] += pixels[i + 3] * under;
+  }
+}
+
+/// 貯めたものを 1 コマの RGBA にする。上下を戻し、アルファ乗算を解く。
+function resolveFrame(accumulator, base, width, height) {
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    // readPixels は左下が原点なので、ここで裏返す
+    const src = base + (height - 1 - y) * width * 4;
+    const dst = y * width * 4;
+    for (let x = 0; x < width * 4; x += 4) {
+      const alpha = Math.min(255, accumulator[src + x + 3]);
+      out[dst + x + 3] = alpha;
+      if (alpha <= 0) continue;
+
+      const scale = 255 / alpha;
+      out[dst + x] = accumulator[src + x] * scale;
+      out[dst + x + 1] = accumulator[src + x + 1] * scale;
+      out[dst + x + 2] = accumulator[src + x + 2] * scale;
+    }
+  }
+  return out;
+}
+
+// --------------------------------------------------- 焼いたものを見せる / 送る
+
+let previewTimer = 0;
+
+/// 焼いたコマを繰りかえし再生して見せる。継ぎ目が出ていないかはこれで分かる。
+function playPatternPreview(frames, width, height, step) {
+  clearInterval(previewTimer);
+  patternCanvas.width = width;
+  patternCanvas.height = height;
+  const ctx2d = patternCanvas.getContext("2d");
+
+  const images = frames.map((f) => new ImageData(f, width, height));
+  let at = 0;
+  previewTimer = setInterval(() => {
+    ctx2d.clearRect(0, 0, width, height);
+    ctx2d.putImageData(images[at], 0, 0);
+    at = (at + 1) % images.length;
+  }, 1000 / 60 * step);
+}
+
+async function runBake(send) {
+  if (baking) return;
+  if (!spec.loop) {
+    setStatus("「発生」タブのループを入れてから焼いてください", true);
+    return;
+  }
+
+  baking = true;
+  try {
+    const { frames, width, height, period, step } = await bakePattern();
+    playPatternPreview(frames, width, height, step);
+    setStatus(`焼きました: ${frames.length} コマ / ${width}×${height} px`);
+    if (send) await sendPattern(frames, width, height, period, step);
+  } catch (e) {
+    setStatus("焼けませんでした: " + e.message, true);
+    console.error(e);
+  } finally {
+    baking = false;
+  }
+}
+
+/// 注文の JSON と生のコマを 1 本の body にして送る。
+/// 中身は [JSON の長さ (4 バイト)] [JSON] [コマ...]。
+async function sendPattern(frames, width, height, period, step) {
+  const res = await postPattern(frames, width, height, period, step);
+  await receiveFile(res, "pattern.zip");
+}
+
+async function postPattern(frames, width, height, period, step) {
+  const order = {
+    format: spec.patternFormat,
+    name: nameInput.value.trim() || "effect",
+    width, height,
+    columns: Math.max(1, Math.round(spec.patternColumns)),
+    // 間引いたぶんだけゆっくり流さないと、もとの速さにならない
+    fps: Math.max(1, Math.round(60 / step)),
+    quality: Math.round(spec.patternQuality),
+    periodFrames: period,
+    step,
+    centerX: 0, centerY: 0,
+    blend: spec.blend,
+  };
+
+  const json = new TextEncoder().encode(JSON.stringify(order));
+  const plane = width * height * 4;
+  const body = new Uint8Array(4 + json.length + frames.length * plane);
+  new DataView(body.buffer).setInt32(0, json.length, true);
+  body.set(json, 4);
+  frames.forEach((frame, i) => body.set(new Uint8Array(frame.buffer), 4 + json.length + i * plane));
+
+  return fetch("/api/pattern", { method: "POST", body });
+}
+
+// ------------------------------------------------------------ 設定まわりの UI
+
+// なめらかさは fps で選ばせる。エディタは 60fps 基準なので、
+// 実際には「何フレームおきに 1 コマ焼くか」に読み替えている (60 を割り切れる値だけ)。
+const PATTERN_FPS = [
+  [1, "60 fps (毎フレーム)"],
+  [2, "30 fps (2 フレームおき)"],
+  [3, "20 fps (3 フレームおき)"],
+  [4, "15 fps (4 フレームおき)"],
+  [5, "12 fps (5 フレームおき)"],
+  [6, "10 fps (6 フレームおき)"],
+  [10, "6 fps (10 フレームおき)"],
+];
+
+const patternStep = () => Math.max(1, Math.round(spec.patternStep));
+const patternFps = () => Math.max(1, Math.round(60 / patternStep()));
+
+const PATTERN_INPUTS = [
+  ["pattern-format", "patternFormat", (v) => v],
+  ["pattern-fps", "patternStep", (v) => Math.max(1, Math.round(+v))],
+  ["pattern-width", "patternWidth", (v) => roundUnit(+v)],
+  ["pattern-height", "patternHeight", (v) => roundUnit(+v)],
+  ["pattern-columns", "patternColumns", (v) => Math.max(1, Math.round(+v))],
+  ["pattern-quality", "patternQuality", (v) => Math.min(100, Math.max(50, Math.round(+v)))],
+];
+
+for (const [step, text] of PATTERN_FPS) {
+  const option = document.createElement("option");
+  option.value = step;
+  option.textContent = text;
+  document.getElementById("pattern-fps").appendChild(option);
+}
+
+for (const [id, key, clean] of PATTERN_INPUTS) {
+  const input = document.getElementById(id);
+  input.addEventListener("change", () => {
+    spec[key] = clean(input.value);
+    syncPatternControls();   // 形式を変えると出す項目も変わる
+  });
+  controls.set(key, (v) => { input.value = v; });
+}
+
+/// コマの大きさを、組み込み先の画面サイズ (「表示」タブ) に合わせる。
+document.getElementById("btn-pattern-screen").addEventListener("click", () => {
+  spec.patternWidth = roundUnit(spec.frameWidth);
+  spec.patternHeight = roundUnit(spec.frameHeight);
+  syncPatternControls();
+});
+
+function syncPatternControls() {
+  // なめらかさは選べる値が飛び飛びなので、外から来た値はいちばん近いものへ寄せる
+  if (!PATTERN_FPS.some(([step]) => step === patternStep())) {
+    spec.patternStep = PATTERN_FPS.reduce((best, [step]) =>
+      Math.abs(step - patternStep()) < Math.abs(best - patternStep()) ? step : best, 1);
+  }
+
+  for (const [id, key] of PATTERN_INPUTS) document.getElementById(id).value = spec[key];
+
+  // 形式に関わる項目だけ出す
+  for (const label of document.querySelectorAll("#pattern-body [data-format]")) {
+    label.classList.toggle("hidden", label.dataset.format !== spec.patternFormat);
+  }
+
+  document.getElementById("btn-pattern-screen").textContent =
+    `画面サイズ (${roundUnit(spec.frameWidth)}×${roundUnit(spec.frameHeight)}) にする`;
+
+  // 焼く前でもコマの大きさが分かるように、確認用の枠を指定の大きさにしておく。
+  // (大きさを変えたら焼いたものは合わなくなるので、そのときは消す)
+  const width = roundUnit(spec.patternWidth);
+  const height = roundUnit(spec.patternHeight);
+  if (patternCanvas.width !== width || patternCanvas.height !== height) {
+    clearInterval(previewTimer);
+    patternCanvas.width = width;
+    patternCanvas.height = height;
+  }
+
+  updatePatternNote();
+}
+
+/// 焼くのに要るメモリ (バイト)。コマを Float32 で貯めるので、大きさ × 枚数で効いてくる。
+const patternMemory = () =>
+  patternFrameCount() * roundUnit(spec.patternWidth) * roundUnit(spec.patternHeight) * 4 * 4;
+
+const PATTERN_MEMORY_LIMIT = 400 * 1024 * 1024;
+
+function updatePatternNote() {
+  if (!patternNoteEl) return;
+  const width = roundUnit(spec.patternWidth);
+  const height = roundUnit(spec.patternHeight);
+  const count = patternFrameCount();
+  const notes = [];
+
+  if (!spec.loop) {
+    notes.push("ループが切れています。「発生」タブでループを入れると、その周期で焼けます。");
+  } else {
+    notes.push(`${patternFps()} fps で ${count} コマ / 1 コマ ${width}×${height} px。`);
+    if (spec.patternFormat === "sheet") {
+      const columns = Math.min(Math.max(1, Math.round(spec.patternColumns)), count);
+      const rows = Math.ceil(count / columns);
+      notes.push(`シートは ${columns}×${rows} 並びで ${columns * width}×${rows * height} px になります。`);
+    }
+    if (spec.patternFormat === "amv") {
+      notes.push("色は JPEG、アルファは可逆です。");
+    }
+    if (patternMemory() > PATTERN_MEMORY_LIMIT) {
+      notes.push(`※ この大きさと枚数だと ${Math.round(patternMemory() / 1024 / 1024)}MB 必要で焼けません。なめらかさを落とすか、コマを小さくしてください。`);
+    }
+  }
+  notes.push("写すのはプレビューの中央です (再生側の操作やズームは掛かりません)。");
+  patternNoteEl.textContent = notes.join(" ");
+}
+
+const showPattern = (on) => {
+  patternOverlay.classList.toggle("hidden", !on);
+  if (on) { syncPatternControls(); } else { clearInterval(previewTimer); }
+};
+
+document.getElementById("btn-pattern").addEventListener("click", () => showPattern(true));
+document.getElementById("btn-close-pattern").addEventListener("click", () => showPattern(false));
+document.getElementById("btn-bake").addEventListener("click", () => runBake(false));
+document.getElementById("btn-export-pattern").addEventListener("click", () => runBake(true));
+patternOverlay.addEventListener("click", (ev) => { if (ev.target === patternOverlay) showPattern(false); });
 
 // ---------------------------------------------------------------- 自己診断
 // ?selftest=1 を付けて開くと、パラメータを変えながら数サイクル回し、
@@ -1880,15 +2318,73 @@ async function runSelfTest() {
     ok: tabsOk && missing.length === 0 && helpOpened && helpClosed,
   };
 
+  // アニメパターン: 折り返し合成が「ずっと繰りかえしている状態」になっているか。
+  //
+  // 粒の寿命 (60) を周期 (30) より長くしておくのが要点。折り返しが効いていなければ
+  // 頭のコマは出はじめで空っぽ、終わりのコマは満杯になるので、
+  //   ・コマごとの濃さがばらつく
+  //   ・最後のコマ → 最初のコマ の変化だけが飛び抜けて大きくなる
+  // という形で必ず現れる。
+  spec.loop = true;
+  spec.loopFrames = 30;
+  spec.loopEmitFrames = 30;
+  spec.life = 60; spec.lifeVariance = 0;
+  spec.emitRate = 120;
+  spec.speed = 1.5; spec.speedVariance = 0;
+  spec.gravity = 0;
+  spec.emitterMotion = "none";
+  spec.patternWidth = 64; spec.patternHeight = 64; spec.patternStep = 3;
+
+  const baked = await bakePattern();
+  const totalAlpha = (frame) => {
+    let sum = 0;
+    for (let i = 3; i < frame.length; i += 4) sum += frame[i];
+    return sum;
+  };
+  const meanDiff = (a, b) => {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+    return sum / a.length;
+  };
+
+  const steps = [];
+  for (let i = 0; i < baked.frames.length - 1; i++) steps.push(meanDiff(baked.frames[i], baked.frames[i + 1]));
+  const seam = meanDiff(baked.frames[baked.frames.length - 1], baked.frames[0]);
+  const typical = [...steps].sort((a, b) => a - b)[Math.floor(steps.length / 2)];
+  const fills = baked.frames.map(totalAlpha);
+
+  // 3 形式とも書き出せるか (中身までは見ない。サーバ側の往復テストは別にある)
+  const formats = {};
+  for (const format of ["sheet", "frames", "amv"]) {
+    spec.patternFormat = format;
+    const res = await postPattern(baked.frames, baked.width, baked.height, baked.period, baked.step);
+    formats[format] = res.ok ? (await res.blob()).size : "HTTP " + res.status;
+  }
+
+  const pattern = {
+    frames: baked.frames.length,
+    size: [baked.width, baked.height],
+    // 継ぎ目の変化が、ふつうのコマ送りと同じくらいなら輪になっている
+    seam: +seam.toFixed(2), typical: +typical.toFixed(2),
+    fill: [Math.round(Math.min(...fills)), Math.round(Math.max(...fills))],
+    formats,
+    ok: baked.frames.length === 10
+      && Math.min(...fills) > 0
+      && Math.min(...fills) > Math.max(...fills) * 0.6
+      && seam < typical * 2.5
+      && Object.values(formats).every((v) => typeof v === "number" && v > 0),
+  };
+
   const blank = cycles.filter((c) => c.litPixels === 0);
   const el = document.createElement("pre");
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
       ok: blank.length === 0 && emitter.ok && drag.ok && motion.ok && placement.ok
-        && readout.ok && background.ok && roundTrip.ok && templates.ok && shapes.ok && ui.ok,
+        && readout.ok && background.ok && roundTrip.ok && templates.ok && shapes.ok && ui.ok
+        && pattern.ok,
       blankCycles: blank.length, ui, emitter, drag, motion, placement, readout, background,
-      roundTrip, templates, shapes, cycles,
+      roundTrip, templates, shapes, pattern, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }
@@ -1915,6 +2411,7 @@ if (!gl) {
       requestAnimationFrame(frame);
       if (location.hash === "#templates") openTemplates();
       if (location.hash === "#help") showHelp(true);
+      if (location.hash === "#pattern") showPattern(true);
     }
   }, () => {
     setStatus("effekseer.wasm の読み込みに失敗しました", true);

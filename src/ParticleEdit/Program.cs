@@ -1,8 +1,13 @@
 using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
 using ParticleEdit;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+// アニメパターンの書き出しは生のビットマップを丸ごと送りつけるので、
+// 既定の 30MB では足りない。相手は同じ機械の中のブラウザなので上限は外す。
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = null);
 var app = builder.Build();
 
 // 置き場は particleedit.json で差し替えられる。基準はコンテンツルートで、
@@ -67,8 +72,11 @@ app.MapPost("/api/debug", (EffectSpec spec) => Results.Text(EffectBuilder.Descri
 
 // プレビュー用: パラメータを受け取って .efk のバイト列を返す。
 // ブラウザ側はこれを ArrayBuffer のまま effekseer.js の loadEffect に渡す。
-app.MapPost("/api/effect.efk", (EffectSpec spec) =>
-	Results.Bytes(EffectBuilder.Build(spec).Efk, "application/octet-stream"));
+//
+// cycle=one を付けると、ループの 1 周期ぶんだけ発生するものを返す。
+// アニメパターンを焼くときに使う (下の /api/pattern の説明を参照)。
+app.MapPost("/api/effect.efk", (EffectSpec spec, string? cycle) =>
+	Results.Bytes(EffectBuilder.Build(spec, oneCycle: cycle == "one").Efk, "application/octet-stream"));
 
 // ---------------------------------------------------------------- プロジェクト
 // このアプリ固有のセーブ/ロード。編集を再開できる往復可能な形式。
@@ -177,19 +185,71 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 		}
 	}
 
-	// 書き出し先が決まっているならそこへ置く。ブラウザからは保存先を選べないので、
-	// 置き場が決まっている運用ではこのほうが手数が少ない。
-	var directory = config.ExportPath;
-	if (directory != null)
+	return Deliver(ms.ToArray(), fileName!, "application/zip");
+});
+
+// ------------------------------------------------------ アニメパターンの書き出し
+// エフェクトを絵の連なりに焼いたもの。ループの周期が分かっていれば、
+// 継ぎ目のない繰りかえしにできる (詳しくは README「アニメパターンの焼きかた」)。
+//
+// コマを作るのはブラウザ。エフェクトを描けるのが WebGL の上の effekseer.js しか
+// 無いため、ここへは焼き上がった RGBA が送られてくる。中身は
+//   [注文の JSON の長さ (4 バイト)] [注文の JSON] [コマ 1] [コマ 2] ...
+// で、コマは左上が原点・アルファ非乗算の RGBA。
+
+app.MapPost("/api/pattern", async (HttpRequest request) =>
+{
+	using var ms = new MemoryStream();
+	await request.Body.CopyToAsync(ms);
+	var body = ms.ToArray();
+
+	if (body.Length < 4) return Results.BadRequest("body が短すぎます");
+	var jsonLength = BitConverter.ToInt32(body, 0);
+	if (jsonLength < 0 || 4 + jsonLength > body.Length) return Results.BadRequest("body が壊れています");
+
+	var order = JsonSerializer.Deserialize<PatternRequest>(
+		Encoding.UTF8.GetString(body, 4, jsonLength),
+		new JsonSerializerOptions(JsonSerializerDefaults.Web));
+	if (order == null) return Results.BadRequest("注文を読めません");
+
+	var frameBytes = order.Width * order.Height * 4;
+	if (order.Width <= 0 || order.Height <= 0) return Results.BadRequest("コマの大きさが不正です");
+
+	var offset = 4 + jsonLength;
+	var count = (body.Length - offset) / frameBytes;
+	if (count < 1) return Results.BadRequest("コマがありません");
+
+	var frames = new List<byte[]>(count);
+	for (var i = 0; i < count; i++)
 	{
-		Directory.CreateDirectory(directory);
-		var path = Path.Combine(directory, fileName!);
-		File.WriteAllBytes(path, ms.ToArray());
-		return Results.Ok(new { path });
+		var frame = new byte[frameBytes];
+		Array.Copy(body, offset + i * frameBytes, frame, 0, frameBytes);
+		frames.Add(frame);
 	}
 
-	return Results.Bytes(ms.ToArray(), "application/zip", fileName);
+	try
+	{
+		var result = PatternWriter.Write(order, frames);
+		return Deliver(result.Bytes, result.FileName, "application/octet-stream", result.Note);
+	}
+	catch (ArgumentException e)
+	{
+		return Results.BadRequest(e.Message);
+	}
 });
+
+// 書き出し先が決まっているならそこへ置く。ブラウザからは保存先を選べないので、
+// 置き場が決まっている運用ではこのほうが手数が少ない。
+IResult Deliver(byte[] bytes, string fileName, string contentType, string? note = null)
+{
+	var directory = config.ExportPath;
+	if (directory == null) return Results.Bytes(bytes, contentType, fileName);
+
+	Directory.CreateDirectory(directory);
+	var path = Path.Combine(directory, fileName);
+	File.WriteAllBytes(path, bytes);
+	return Results.Ok(new { path, note });
+}
 
 var url = $"http://localhost:{config.Port}";
 Console.WriteLine();
