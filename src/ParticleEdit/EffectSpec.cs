@@ -120,6 +120,16 @@ public sealed class EffectSpec
 	/// </summary>
 	public float BackgroundBrightness { get; set; } = 100f;
 
+	/// <summary>
+	/// 再生側 (組み込み先) がエフェクト全体に掛ける配置。プレビューで様子を見るためだけの
+	/// もので、エフェクトデータには入らない。吉里吉里プラグインなら
+	/// setCoord / setZoom / angle に相当する。
+	/// </summary>
+	public float PlayX { get; set; } = 0f;
+	public float PlayY { get; set; } = 0f;
+	public float PlayZoom { get; set; } = 100f;
+	public float PlayRotation { get; set; } = 0f;
+
 	/// <summary>組み込み先の画面サイズ。プレビューに枠として重ねて、大きさの当たりを付ける。</summary>
 	public int FrameWidth { get; set; } = 1280;
 	public int FrameHeight { get; set; } = 720;

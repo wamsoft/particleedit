@@ -139,6 +139,19 @@ const GROUPS = [
       { type: "motion-editor" },
     ],
   },
+  {
+    tab: "動き", title: "再生側の操作 (確認用)",
+    params: [
+      { key: "playX", label: "位置 X", min: -960, max: 960, step: 1, value: 0,
+        help: "組み込み先がエフェクト全体を置く位置。エフェクトには入らない" },
+      { key: "playY", label: "位置 Y", min: -540, max: 540, step: 1, value: 0,
+        help: "同上。正の値が画面の上方向" },
+      { key: "playZoom", label: "ズーム (%)", min: 10, max: 400, step: 1, value: 100,
+        help: "組み込み先が掛ける拡大率。粒の大きさも一緒に変わる" },
+      { key: "playRotation", label: "回転 (度)", min: 0, max: 360, step: 1, value: 0,
+        help: "組み込み先が掛ける回転。反時計回り" },
+    ],
+  },
 ];
 
 // パラメータは "shape.blur" のような入れ子のキーも取れるようにしておく
@@ -160,6 +173,7 @@ const controls = new Map();
 /// エフェクトデータに影響しない (= 作り直しが要らない) パラメータ
 const EDITOR_ONLY_KEYS = new Set([
   "backgroundColor", "backgroundBrightness", "showFrame", "frameWidth", "frameHeight",
+  "playX", "playY", "playZoom", "playRotation",
 ]);
 
 // ---------------------------------------------------------------- UI 構築
@@ -543,6 +557,61 @@ function syncMotionEditor() {
   motionNote.textContent = motion
     ? `${motion.points.length} 点 / ${motion.frames} フレーム (${(motion.frames / 60).toFixed(1)} 秒)`
     : "「記録…」を押してプレビューの上をなぞる";
+}
+
+/// 軌道の指定フレームでの位置 (点と点の間は直線で埋める)。
+function motionPositionAt(motion, frame) {
+  const points = motion.points;
+  if (!points || !points.length) return null;
+  if (frame <= points[0].frame) return { x: points[0].x, y: points[0].y };
+
+  const last = points[points.length - 1];
+  if (frame >= last.frame) return { x: last.x, y: last.y };
+
+  for (let i = 1; i < points.length; i++) {
+    const b = points[i];
+    if (frame > b.frame) continue;
+    const a = points[i - 1];
+    const span = b.frame - a.frame;
+    const t = span > 0 ? (frame - a.frame) / span : 0;
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+  return null;
+}
+
+// --- 軌道の再生 (プレビュー用) --------------------------------------------
+// 焼き込みは Effekseer が自分で動かすが、いま何フレーム目でどこに居るのかは
+// 外からは分からない。「組み込み先から動かす」ほうは誰も動かさないので、
+// そのままだと止まって見える。どちらもこちらで時計を回して面倒を見る。
+
+let motionFrame = 0;
+
+function resetMotionClock() { motionFrame = 0; }
+
+/// 1 フレーム進めて、いまの発生位置を返す。軌道が無ければ null。
+function advanceMotion() {
+  if (spec.emitterMotion === "none") return null;
+  const active = currentMotion();
+  if (!active || !active.points || active.points.length < 2) return null;
+
+  const frames = active.frames > 0 ? active.frames : 1;
+  motionFrame += 1;
+  if (motionFrame > frames) {
+    if (active.loop) motionFrame -= Math.floor(motionFrame / frames) * frames;
+    else motionFrame = frames;
+  }
+
+  const point = motionPositionAt(active, motionFrame);
+  if (!point) return null;
+
+  // 「組み込み先から動かす」は誰も値を入れないので、ここで入れて動かして見せる。
+  // 組み込み先へ渡すのと同じ流儀 (画面中央が原点・Y は下向き) にする。
+  if (spec.emitterMotion === "dynamic" && handle) {
+    handle.setDynamicInput(0, point.x);
+    handle.setDynamicInput(1, -point.y);
+  }
+
+  return { x: spec.emitterX + point.x, y: spec.emitterY + point.y };
 }
 
 /// 選んでいる軌道をプレビューへ重ねる。
@@ -1185,6 +1254,7 @@ function loadEffectOn(ctx, buffer) {
 /// 新しいエフェクトが完全に準備できてから差し替える。
 /// 先に古い方を解放しないので、切り替えの瞬間もプレビューが途切れない。
 function swapEffect(next) {
+  resetMotionClock();
   context.stopAll();
   if (effect) context.releaseEffect(effect);
   effect = next;
@@ -1212,6 +1282,16 @@ function clearToBackground() {
 }
 
 /// 1 フレーム分の更新と描画。
+/// 組み込み先がエフェクト全体に掛ける配置を真似る。
+/// 平行移動が既に出ている粒に効かないのに拡縮と回転は効く、といった差もここで見える。
+function applyPlacement() {
+  if (!handle) return;
+  const scale = Math.max(0.01, (spec.playZoom ?? 100) / 100);
+  handle.setLocation(spec.playX ?? 0, spec.playY ?? 0, 0);
+  handle.setRotation(0, 0, (spec.playRotation ?? 0) * Math.PI / 180);
+  handle.setScale(scale, scale, scale);
+}
+
 function step(w, h) {
   clearToBackground();
   drawBackground(w, h, previewZoom(w, h));
@@ -1220,9 +1300,12 @@ function step(w, h) {
   const zoom = previewZoom(w, h);
   context.setProjectionOrthographic(w / zoom, h / zoom, 1, 4000);
   context.setCameraLookAt(0, 0, 1000, 0, 0, 0, 0, 1, 0);
+  // 配置と発生位置は更新より前に入れる (更新時の値で 1 フレームぶんが決まるため)
+  applyPlacement();
+  const position = advanceMotion();
   context.update(1.0);
   context.draw();
-  return zoom;
+  return { zoom, position };
 }
 
 function frame() {
@@ -1230,11 +1313,14 @@ function frame() {
   gl.viewport(0, 0, canvas.width, canvas.height);
 
   if (context) {
-    const zoom = step(w, h);
+    const { zoom, position } = step(w, h);
     updateFrameGuide(zoom);
     // 空き枠から逆算したインスタンス数を、粒の数に直して見せる
     const instances = INSTANCE_MAX - context.getRestInstancesCount();
-    statsEl.textContent = `particles: ${Math.round(instances / INSTANCES_PER_PARTICLE)}`;
+    const particles = `particles: ${Math.round(instances / INSTANCES_PER_PARTICLE)}`;
+    statsEl.textContent = position
+      ? `${particles}    発生位置: ${Math.round(position.x)}, ${Math.round(position.y)}`
+      : particles;
   }
 
   requestAnimationFrame(frame);
@@ -1587,6 +1673,71 @@ async function runSelfTest() {
   }
   shapes.ok = shapes.checked.every((s) => s.ok);
 
+  // 再生側の操作: ズームと位置がプレビューに効くか。
+  // 直前の検査がテンプレートを適用しているので、測るのに要る値は全部置き直す。
+  spec.emitterMotion = "none"; spec.motionName = ""; spec.motions = [];
+  spec.showFrame = false;
+  spec.emitRate = 400; spec.speed = 0; spec.speedVariance = 0;
+  spec.gravity = 0; spec.drag = 0; spec.life = 30; spec.lifeVariance = 0;
+  spec.emitterX = 0; spec.emitterY = 0;
+  spec.spawnRangeX = 0; spec.spawnRangeY = 0;
+  spec.startSize = 40; spec.startSizeVariance = 0;
+  spec.endSize = 40; spec.endSizeVariance = 0;
+  spec.rotation = 0; spec.rotationVariance = 0;
+  spec.rotationSpeed = 0; spec.rotationSpeedVariance = 0;
+  spec.shape = { type: "procedural", curve: "polygon", sides: 0, starRatio: 1, hole: 0,
+                 blur: 0.1, falloff: 1, rotation: 0, scale: 1, imageId: null };
+  spec.playX = 0; spec.playY = 0; spec.playZoom = 100; spec.playRotation = 0;
+  await rebuild();
+  await sleep(150);
+  const plain = renderAndMeasure(20);
+  spec.playZoom = 200;
+  const zoomed = renderAndMeasure(20);
+  spec.playZoom = 100; spec.playX = 150; spec.playY = -80;
+  // 「その場に置き去り」なので、平行移動には既に出ている粒が付いてこない。
+  // 前の位置の粒が寿命で消えるまで進めてから測る。
+  const moved = renderAndMeasure(45);
+  spec.playX = 0; spec.playY = 0;
+
+  const spanOf = (r) => (r.x ? r.x[1] - r.x[0] : 0);
+  const midOf = (r) => (r.x ? [(r.x[0] + r.x[1]) / 2, (r.y[0] + r.y[1]) / 2] : null);
+  const before = midOf(plain), after = midOf(moved);
+  const placement = {
+    span: [spanOf(plain), spanOf(zoomed)],
+    moved: before && after
+      ? [Math.round((after[0] - before[0]) / dpr), Math.round((after[1] - before[1]) / dpr)]
+      : null,
+    // ズーム 200% で見た目がおよそ 2 倍、位置指定ぶんだけ動く
+    ok: spanOf(zoomed) > spanOf(plain) * 1.7 && spanOf(zoomed) < spanOf(plain) * 2.3
+      && !!before && !!after
+      && Math.abs((after[0] - before[0]) / dpr - 150) < 12
+      && Math.abs((after[1] - before[1]) / dpr + 80) < 12,
+  };
+
+  // 軌道の現在位置: 時計が進んで座標が返るか
+  spec.motions = [{
+    name: "__selftest__", frames: 60, loop: true,
+    points: [{ frame: 0, x: -100, y: 0 }, { frame: 60, x: 100, y: 0 }],
+  }];
+  spec.motionName = "__selftest__";
+  spec.emitterMotion = "dynamic";
+  await rebuild();
+  await sleep(150);
+  resetMotionClock();
+  const first = advanceMotion();
+  for (let i = 0; i < 29; i++) advanceMotion();
+  const halfway = advanceMotion();
+  spec.emitterMotion = "none";
+  spec.showFrame = savedShowFrame;
+
+  const readout = {
+    first: first ? [Math.round(first.x), Math.round(first.y)] : null,
+    halfway: halfway ? [Math.round(halfway.x), Math.round(halfway.y)] : null,
+    // 60 フレームで -100 から +100 なので、30 フレーム目はほぼ 0
+    ok: !!first && !!halfway
+      && Math.abs(first.x + 100) < 8 && Math.abs(halfway.x) < 8,
+  };
+
   // 背景画像: 敷いた絵が中央に原寸で出るか
   spec.showFrame = false;
   spec.emitRate = 1; spec.startSize = 1; spec.endSize = 1;
@@ -1650,10 +1801,10 @@ async function runSelfTest() {
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && emitter.ok && motion.ok && background.ok && roundTrip.ok
-        && templates.ok && shapes.ok && ui.ok,
-      blankCycles: blank.length, ui, emitter, motion, background, roundTrip,
-      templates, shapes, cycles,
+      ok: blank.length === 0 && emitter.ok && motion.ok && placement.ok && readout.ok
+        && background.ok && roundTrip.ok && templates.ok && shapes.ok && ui.ok,
+      blankCycles: blank.length, ui, emitter, motion, placement, readout, background,
+      roundTrip, templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }
