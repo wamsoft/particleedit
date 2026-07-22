@@ -140,14 +140,16 @@ public static class BuiltinTemplates
 			Blend = "add", Shape = Shapes.BlurCircle,
 		}),
 
-		("ハート乱舞", new EffectSpec
+		// 画面の下から次々に湧いて、ハートの向きのまま浮かび上がっていく。
+		// 回転のパラメータを 1 つも使わないのが肝で、こうすると素のビルボードになり、
+		// 放射のために入っている生成位置の回転が絵に乗らず、向きが画面に対して立つ。
+		("浮かぶハート", new EffectSpec
 		{
-			EmitRate = 30, SpawnRangeX = 1280, SpawnRangeY = 720,
-			Speed = 1.6f, SpeedVariance = 1.6f, Direction = 90, DirectionVariance = 360,
-			Gravity = 0.004f, GravityDirection = 90, Drag = 0.02f,
-			Life = 130, LifeVariance = 60,
-			StartSize = 150, StartSizeVariance = 90, EndSize = 150, EndSizeVariance = 90,
-			RotationVariance = 60, RotationSpeedVariance = 5,
+			EmitRate = 24, EmitterY = -430, SpawnRangeX = 1240, SpawnRangeY = 140,
+			Speed = 3.4f, SpeedVariance = 1.8f, Direction = 90, DirectionVariance = 26,
+			Gravity = 0.006f, GravityDirection = 90, Drag = 0,
+			Life = 200, LifeVariance = 60,
+			StartSize = 130, StartSizeVariance = 70, EndSize = 130, EndSizeVariance = 70,
 			Hue = 340, HueVariance = 46, Saturation = 72, SaturationVariance = 22,
 			Brightness = 100, StartAlpha = 0.95f, EndAlpha = 0,
 			Blend = "blend", Shape = Shapes.Heart,
