@@ -16,6 +16,12 @@ public sealed class ShapeSpec
 	/// <summary>"procedural" または "image"</summary>
 	public string Type { get; set; } = "procedural";
 
+	/// <summary>
+	/// 輪郭の作りかた。"polygon" は下の 辺の数 / 星形 から作る (円もこちら)。
+	/// "heart" のような決め打ちの曲線はここで選ぶ。
+	/// </summary>
+	public string Curve { get; set; } = "polygon";
+
 	/// <summary>0 = 円、3 以上 = その辺数の多角形</summary>
 	public int Sides { get; set; } = 0;
 
@@ -50,6 +56,7 @@ public sealed class ShapeSpec
 
 		var source = string.Join('_', new[]
 		{
+			Curve,
 			Sides.ToString(CultureInfo.InvariantCulture),
 			StarRatio.ToString("0.###", CultureInfo.InvariantCulture),
 			Hole.ToString("0.###", CultureInfo.InvariantCulture),

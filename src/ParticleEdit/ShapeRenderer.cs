@@ -22,6 +22,7 @@ public static class ShapeRenderer
 		("四角",     new ShapeSpec { Sides = 4, Blur = 0.06f, Falloff = 1f, Rotation = 45f, Scale = 0.86f }),
 		("六角",     new ShapeSpec { Sides = 6, Blur = 0.06f, Falloff = 1f, Rotation = 90f, Scale = 0.9f }),
 		("光芒",     new ShapeSpec { Sides = 4, StarRatio = 0.06f, Blur = 0.35f, Falloff = 1.4f, Rotation = 90f, Scale = 1f }),
+		("ハート",   new ShapeSpec { Curve = "heart", Blur = 0.08f, Falloff = 1f, Scale = 0.92f }),
 	};
 
 	static readonly Dictionary<string, byte[]> Cache = new();
@@ -80,7 +81,10 @@ public static class ShapeRenderer
 		var rgba = new byte[Size * Size * 4];
 		const float half = Size / 2f;
 
-		var vertices = BuildVertices(shape);
+		var isHeart = shape.Curve == "heart";
+		var vertices = isHeart ? null : BuildVertices(shape);
+		// ハートは輪郭を式で持っているので、角度ごとの半径表にしてから使う
+		var heartRotation = isHeart ? shape.Rotation * MathF.PI / 180f : 0f;
 		var scale = Math.Clamp(shape.Scale, 0.05f, 1f);
 		var hole = Math.Clamp(shape.Hole, 0f, 0.95f);
 		var falloff = Math.Clamp(shape.Falloff, 0.1f, 8f);
@@ -99,7 +103,9 @@ public static class ShapeRenderer
 				var r = MathF.Sqrt(nx * nx + ny * ny);
 				// 画像の y は下向きなので、角度を数学の向き (反時計回り・90 度が上) へ直す。
 				// こうすると「回転」スライダーが画面上の見た目と一致する。
-				var boundary = BoundaryRadius(vertices, MathF.Atan2(-ny, nx)) * scale;
+				var theta = MathF.Atan2(-ny, nx);
+				var boundary = (isHeart ? HeartRadius(theta - heartRotation)
+				                        : BoundaryRadius(vertices, theta)) * scale;
 				var d = boundary > 1e-6f ? r / boundary : 999f;
 
 				var outer = MathF.Pow(Math.Clamp((1f - d) / width, 0f, 1f), falloff);
@@ -141,6 +147,81 @@ public static class ShapeRenderer
 			vertices[i] = (MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
 		}
 		return vertices;
+	}
+
+	// ------------------------------------------------------------------ ハート
+	// 輪郭は (x^2 + y^2 - 1)^3 - x^2 y^3 = 0 の内側。多角形と違って頂点で表せないので、
+	// 中心から角度ごとに二分探索して「半径の表」にしてしまい、あとは同じ扱いにする。
+	// 表は 1 度も動かないので最初の 1 回だけ作る。
+
+	const int HeartSteps = 720;
+	static float[]? _heartRadius;
+
+	static float HeartRadius(float theta)
+	{
+		var table = _heartRadius ??= BuildHeartRadius();
+
+		// 表の間は直線で埋める (720 分割なので継ぎ目は見えない)
+		var t = theta / (MathF.PI * 2f) * HeartSteps;
+		t -= MathF.Floor(t / HeartSteps) * HeartSteps;
+		var i = (int)t;
+		var frac = t - i;
+		return table[i] + (table[(i + 1) % HeartSteps] - table[i]) * frac;
+	}
+
+	static float[] BuildHeartRadius()
+	{
+		var table = new float[HeartSteps];
+
+		// 式そのままだと上下に偏っていて、テクスチャの中で下寄りに見える。
+		// 一周ぶん測って上下の真ん中へ原点を寄せ直す (数回で落ち着く)。
+		var centerY = 0f;
+		for (var pass = 0; pass < 4; pass++)
+		{
+			float top = float.MinValue, bottom = float.MaxValue;
+			for (var i = 0; i < HeartSteps; i++)
+			{
+				var theta = MathF.PI * 2f * i / HeartSteps;
+				table[i] = RayToHeart(theta, centerY);
+				var y = centerY + table[i] * MathF.Sin(theta);
+				top = MathF.Max(top, y);
+				bottom = MathF.Min(bottom, y);
+			}
+			centerY = (top + bottom) / 2f;
+		}
+
+		// いちばん遠いところがテクスチャの縁に来るように揃える
+		var max = 0f;
+		for (var i = 0; i < HeartSteps; i++)
+		{
+			table[i] = RayToHeart(MathF.PI * 2f * i / HeartSteps, centerY);
+			max = MathF.Max(max, table[i]);
+		}
+		for (var i = 0; i < HeartSteps; i++) table[i] /= max;
+		return table;
+	}
+
+	/// <summary>(0, centerY) から角度 θ へ進んで輪郭に当たるまでの距離。</summary>
+	static float RayToHeart(float theta, float centerY)
+	{
+		var dx = MathF.Cos(theta);
+		var dy = MathF.Sin(theta);
+
+		// 内側が負、外側が正。半径 2 まで行けば必ず外側なので、その間を詰める。
+		float lo = 0f, hi = 2f;
+		for (var i = 0; i < 40; i++)
+		{
+			var mid = (lo + hi) * 0.5f;
+			if (Heart(dx * mid, centerY + dy * mid) < 0f) lo = mid;
+			else hi = mid;
+		}
+		return (lo + hi) * 0.5f;
+	}
+
+	static float Heart(float x, float y)
+	{
+		var a = x * x + y * y - 1f;
+		return a * a * a - x * x * y * y * y;
 	}
 
 	/// <summary>角度 θ の向きに進んだとき、輪郭に当たるまでの距離。</summary>

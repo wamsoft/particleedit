@@ -140,6 +140,19 @@ public static class BuiltinTemplates
 			Blend = "add", Shape = Shapes.BlurCircle,
 		}),
 
+		("ハート乱舞", new EffectSpec
+		{
+			EmitRate = 30, SpawnRangeX = 1280, SpawnRangeY = 720,
+			Speed = 1.6f, SpeedVariance = 1.6f, Direction = 90, DirectionVariance = 360,
+			Gravity = 0.004f, GravityDirection = 90, Drag = 0.02f,
+			Life = 130, LifeVariance = 60,
+			StartSize = 150, StartSizeVariance = 90, EndSize = 150, EndSizeVariance = 90,
+			RotationVariance = 60, RotationSpeedVariance = 5,
+			Hue = 340, HueVariance = 46, Saturation = 72, SaturationVariance = 22,
+			Brightness = 100, StartAlpha = 0.95f, EndAlpha = 0,
+			Blend = "blend", Shape = Shapes.Heart,
+		}),
+
 		("魔法の粉", new EffectSpec
 		{
 			EmitRate = 150, SpawnRangeX = 520, SpawnRangeY = 460,
@@ -168,7 +181,7 @@ public static class BuiltinTemplates
 
 		static ShapeSpec Copy(ShapeSpec s) => new()
 		{
-			Type = s.Type, Sides = s.Sides, StarRatio = s.StarRatio, Hole = s.Hole,
+			Type = s.Type, Curve = s.Curve, Sides = s.Sides, StarRatio = s.StarRatio, Hole = s.Hole,
 			Blur = s.Blur, Falloff = s.Falloff, Rotation = s.Rotation, Scale = s.Scale,
 			ImageId = s.ImageId,
 		};
@@ -178,6 +191,7 @@ public static class BuiltinTemplates
 		public static ShapeSpec Ring => Of("リング");
 		public static ShapeSpec Star => Of("星");
 		public static ShapeSpec Square => Of("四角");
+		public static ShapeSpec Heart => Of("ハート");
 	}
 
 	public static EffectSpec? Find(string name)

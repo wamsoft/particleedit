@@ -38,19 +38,6 @@ const GROUPS = [
     ],
   },
   {
-    tab: "動き", title: "エミッタの動き",
-    params: [
-      { key: "emitterMotion", label: "動かしかた", type: "select", value: "none",
-        options: [
-          ["none", "動かさない"],
-          ["baked", "軌道を焼き込む"],
-          ["dynamic", "組み込み先から動かす"],
-        ],
-        help: "発生位置そのものを動かすかどうか。詳しくはヘルプへ" },
-      { type: "motion-editor" },
-    ],
-  },
-  {
     tab: "粒", title: "パーティクル",
     params: [
       { key: "life", label: "寿命 (フレーム)", min: 1, max: 300, step: 1, value: 70,
@@ -136,6 +123,19 @@ const GROUPS = [
         help: "組み込み先の画面の高さ" },
     ],
   },
+  {
+    tab: "動き", title: "エミッタの動き",
+    params: [
+      { key: "emitterMotion", label: "動かしかた", type: "select", value: "none",
+        options: [
+          ["none", "動かさない"],
+          ["baked", "軌道を焼き込む"],
+          ["dynamic", "組み込み先から動かす"],
+        ],
+        help: "発生位置そのものを動かすかどうか。詳しくはヘルプへ" },
+      { type: "motion-editor" },
+    ],
+  },
 ];
 
 // パラメータは "shape.blur" のような入れ子のキーも取れるようにしておく
@@ -148,7 +148,7 @@ function setPath(obj, path, value) {
   target[last] = value;
 }
 
-const spec = { shape: { type: "procedural", imageId: null }, motions: [], motionName: "" };
+const spec = { shape: { type: "procedural", curve: "polygon", imageId: null }, motions: [], motionName: "" };
 for (const g of GROUPS) for (const p of g.params) if (p.key) setPath(spec, p.key, p.value);
 
 /// キー -> UI へ値を書き戻す関数。プロジェクトやテンプレートの読み込み時に使う。
@@ -226,6 +226,7 @@ function buildPanel() {
       const row = document.createElement("div");
       row.className = "row";
       if (p.key.startsWith("shape.")) row.dataset.procedural = "1";
+      row.dataset.key = p.key;
       if (p.help) row.title = p.help;
 
       const label = document.createElement("div");
@@ -696,16 +697,24 @@ function buildShapeEditor() {
 }
 
 /// 手続き的なスライダーは画像を使っているときは効かないので、見た目でも分かるようにする。
+// 決め打ちの曲線 (ハートなど) では、多角形のためのつまみは効かない
+const POLYGON_ONLY_KEYS = new Set(["shape.sides", "shape.starRatio"]);
+
 function updateShapeRowsEnabled() {
   const isImage = spec.shape.type === "image";
+  const isCurve = !isImage && spec.shape.curve && spec.shape.curve !== "polygon";
+
   for (const row of document.querySelectorAll('#params .row[data-procedural="1"]')) {
-    row.classList.toggle("disabled", isImage);
+    const off = isImage || (isCurve && POLYGON_ONLY_KEYS.has(row.dataset.key));
+    row.classList.toggle("disabled", off);
     const input = row.querySelector("input");
-    if (input) input.disabled = isImage;
+    if (input) input.disabled = off;
   }
+
   if (shapeNoteEl) {
-    shapeNoteEl.textContent = isImage
-      ? "取り込んだ画像を使用中。プリセットを押すと手続き的な形に戻ります。"
+    shapeNoteEl.textContent =
+      isImage ? "取り込んだ画像を使用中。プリセットを押すと手続き的な形に戻ります。"
+      : isCurve ? "決まった形なので、辺の数と星形は効きません。ほかのつまみは使えます。"
       : "";
   }
 }
