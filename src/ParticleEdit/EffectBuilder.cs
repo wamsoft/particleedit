@@ -70,13 +70,13 @@ public static class EffectBuilder
 			Core.Root.SetFullPath(projectPath);
 
 			// Core.New() が既定のノードを 1 つ作っているのでそれを使う
-			var node = (Node)Core.Root.Children[0];
-			node.Name.SetValue("Particle");
-			ApplyCommon(node, spec);
-			ApplyLocation(node, spec);
-			ApplyScale(node, spec);
-			ApplyRotation(node, spec);
-			ApplyRenderer(node, spec, texturePath);
+			var spawn = (Node)Core.Root.Children[0];
+			spawn.Name.SetValue("Spawn");
+			ApplySpawn(spawn, spec);
+
+			var particle = spawn.AddChild();
+			particle.Name.SetValue("Particle");
+			ApplyParticle(particle, spec, texturePath);
 
 			var efk = new Effekseer.Binary.Exporter().Export(Core.Root, 1.0f);
 
@@ -93,42 +93,54 @@ public static class EffectBuilder
 		lock (Gate)
 		{
 			Build(spec);
-			var node = (Node)Core.Root.Children[0];
+			var spawn = (Node)Core.Root.Children[0];
+			var node = (Node)spawn.Children[0];
+			var spawnPva = spawn.LocationValues.PVA;
 			var pva = node.LocationValues.PVA;
+			var circle = node.GenerationLocationValues.Circle;
 			var ease = node.ScalingValues.Easing;
 			var color = node.DrawingValues.ColorAll;
 			var sb = new System.Text.StringBuilder();
-			sb.AppendLine($"Name              = {node.Name.Value}");
-			sb.AppendLine($"Life              = {node.CommonValues.Life.Min}..{node.CommonValues.Life.Max}");
-			sb.AppendLine($"GenerationTime    = {node.CommonValues.Generation.GenerationTime.Min}..{node.CommonValues.Generation.GenerationTime.Max}");
-			sb.AppendLine($"MaxGeneration.Inf = {node.CommonValues.MaxGeneration.Infinite.Value}");
-			sb.AppendLine($"Location.Type     = {node.LocationValues.Type.Value}");
-			sb.AppendLine($"  Location X      = {pva.Location.X.Min}..{pva.Location.X.Max}  ({pva.Location.X.DrawnAs})");
-			sb.AppendLine($"  Velocity X      = {pva.Velocity.X.Min}..{pva.Velocity.X.Max}  ({pva.Velocity.X.DrawnAs})");
-			sb.AppendLine($"  Velocity Y      = {pva.Velocity.Y.Min}..{pva.Velocity.Y.Max}");
-			sb.AppendLine($"  Accel Y         = {pva.Acceleration.Y.Min}..{pva.Acceleration.Y.Max}");
-			sb.AppendLine($"ForceField1       = {node.LocationAbsValues.LocalForceField1.Type.Value} gravity=({node.LocationAbsValues.LocalForceField1.Gravity.Gravity.X.Value}, {node.LocationAbsValues.LocalForceField1.Gravity.Gravity.Y.Value})");
-			sb.AppendLine($"ForceField2       = {node.LocationAbsValues.LocalForceField2.Type.Value} power={node.LocationAbsValues.LocalForceField2.Power.Value}");
-			sb.AppendLine($"Scale.Type        = {node.ScalingValues.Type.Value}");
-			sb.AppendLine($"  Start X         = {ease.Start.X.Min}..{ease.Start.X.Max}");
-			sb.AppendLine($"  End   X         = {ease.End.X.Min}..{ease.End.X.Max}");
-			sb.AppendLine($"Rotation.Type     = {node.RotationValues.Type.Value}");
-			sb.AppendLine($"  Angle  Z (deg)  = {node.RotationValues.PVA.Rotation.Z.Min}..{node.RotationValues.PVA.Rotation.Z.Max}");
-			sb.AppendLine($"  Speed  Z (deg)  = {node.RotationValues.PVA.Velocity.Z.Min}..{node.RotationValues.PVA.Velocity.Z.Max}");
-			sb.AppendLine($"Drawing.Type      = {node.DrawingValues.Type.Value}");
-			sb.AppendLine($"Billboard         = {node.DrawingValues.Sprite.Billboard.Value}");
-			sb.AppendLine($"ColorAll.Type     = {color.Type.Value}  space={color.Easing.Start.ColorSpace}");
-			sb.AppendLine($"  Start HSVA      = H {color.Easing.Start.R.Min}..{color.Easing.Start.R.Max}  S {color.Easing.Start.G.Min}..{color.Easing.Start.G.Max}  V {color.Easing.Start.B.Min}..{color.Easing.Start.B.Max}  A {color.Easing.Start.A.Min}..{color.Easing.Start.A.Max}");
-			sb.AppendLine($"  End   HSVA      = H {color.Easing.End.R.Min}..{color.Easing.End.R.Max}  A {color.Easing.End.A.Min}..{color.Easing.End.A.Max}");
-			sb.AppendLine($"AlphaBlend        = {node.RendererCommonValues.AlphaBlend.Value}");
-			sb.AppendLine($"ColorTexture      = {node.RendererCommonValues.ColorTexture.RelativePath}");
+			sb.AppendLine($"[{spawn.Name.Value}]  (描画なし)");
+			sb.AppendLine($"  Life            = {spawn.CommonValues.Life.Min}..{spawn.CommonValues.Life.Max}");
+			sb.AppendLine($"  GenerationTime  = {spawn.CommonValues.Generation.GenerationTime.Min}..{spawn.CommonValues.Generation.GenerationTime.Max}");
+			sb.AppendLine($"  LocationEffect  = {spawn.CommonValues.LocationEffectType.Value}");
+			sb.AppendLine($"  Location X      = {spawnPva.Location.X.Min}..{spawnPva.Location.X.Max}");
+			sb.AppendLine($"  Location Y      = {spawnPva.Location.Y.Min}..{spawnPva.Location.Y.Max}");
+			sb.AppendLine($"[{node.Name.Value}]");
+			sb.AppendLine($"  Life            = {node.CommonValues.Life.Min}..{node.CommonValues.Life.Max}");
+			sb.AppendLine($"  MaxGeneration   = {node.CommonValues.MaxGeneration.Value.Value}");
+			sb.AppendLine($"  Emission        = {node.GenerationLocationValues.Type.Value} rotation={node.GenerationLocationValues.EffectsRotation.Value}");
+			sb.AppendLine($"    Angle (deg)   = {circle.AngleStart.Min} noize {circle.AngleNoize.Min}..{circle.AngleNoize.Max}");
+			sb.AppendLine($"  Location.Type   = {node.LocationValues.Type.Value}");
+			sb.AppendLine($"    Velocity Y    = {pva.Velocity.Y.Min}..{pva.Velocity.Y.Max}");
+			sb.AppendLine($"  ForceField1     = {node.LocationAbsValues.LocalForceField1.Type.Value} gravity=({node.LocationAbsValues.LocalForceField1.Gravity.Gravity.X.Value}, {node.LocationAbsValues.LocalForceField1.Gravity.Gravity.Y.Value})");
+			sb.AppendLine($"  ForceField2     = {node.LocationAbsValues.LocalForceField2.Type.Value} power={node.LocationAbsValues.LocalForceField2.Power.Value}");
+			sb.AppendLine($"  Scale.Type      = {node.ScalingValues.Type.Value}");
+			sb.AppendLine($"    Start X       = {ease.Start.X.Min}..{ease.Start.X.Max}");
+			sb.AppendLine($"    End   X       = {ease.End.X.Min}..{ease.End.X.Max}");
+			sb.AppendLine($"  Rotation.Type   = {node.RotationValues.Type.Value}");
+			sb.AppendLine($"    Angle Z (deg) = {node.RotationValues.PVA.Rotation.Z.Min}..{node.RotationValues.PVA.Rotation.Z.Max}");
+			sb.AppendLine($"    Speed Z (deg) = {node.RotationValues.PVA.Velocity.Z.Min}..{node.RotationValues.PVA.Velocity.Z.Max}");
+			sb.AppendLine($"  Drawing.Type    = {node.DrawingValues.Type.Value}");
+			sb.AppendLine($"  Billboard       = {node.DrawingValues.Sprite.Billboard.Value}");
+			sb.AppendLine($"  ColorAll.Type   = {color.Type.Value}  space={color.Easing.Start.ColorSpace}");
+			sb.AppendLine($"    Start HSVA    = H {color.Easing.Start.R.Min}..{color.Easing.Start.R.Max}  S {color.Easing.Start.G.Min}..{color.Easing.Start.G.Max}  V {color.Easing.Start.B.Min}..{color.Easing.Start.B.Max}  A {color.Easing.Start.A.Min}..{color.Easing.Start.A.Max}");
+			sb.AppendLine($"    End   HSVA    = H {color.Easing.End.R.Min}..{color.Easing.End.R.Max}  A {color.Easing.End.A.Min}..{color.Easing.End.A.Max}");
+			sb.AppendLine($"  AlphaBlend      = {node.RendererCommonValues.AlphaBlend.Value}");
+			sb.AppendLine($"  ColorTexture    = {node.RendererCommonValues.ColorTexture.RelativePath}");
 			return sb.ToString();
 		}
 	}
 
-	// ------------------------------------------------------------------ 共通
+	// -------------------------------------------------------- 発生ノード (親)
+	// 描画しない。粒 1 つにつき 1 インスタンスできて、その粒の「発生した場所」を持つ。
+	//
+	// 発生位置を子から分けているのは、子で使う「生成位置 = 円 + 回転を適用」が
+	// 位置のオフセットまで一緒に回してしまうため。分けておけば、回るのは
+	// 子の (常に 0 の) ローカル位置だけになり、発生位置は素直に効く。
 
-	static void ApplyCommon(Node node, EffectSpec spec)
+	static void ApplySpawn(Node node, EffectSpec spec)
 	{
 		var cv = node.CommonValues;
 
@@ -136,47 +148,96 @@ public static class EffectBuilder
 		cv.MaxGeneration.Infinite.SetValue(true);
 		cv.Removal.WhenLifeIsExtinct.SetValue(true);
 
-		// 寿命 (フレーム)
-		SetRange(cv.Life, spec.Life, spec.LifeVariance, min: 1);
+		// 子 (粒) より先に消えないよう、寿命は粒の最大寿命に合わせる
+		var maxLife = spec.Life + Math.Abs(spec.LifeVariance) / 2;
+		SetRange(cv.Life, maxLife, 0, min: 1);
 
 		// 1 秒あたりの発生数 → 何フレームおきに 1 個生成するか
 		var rate = Math.Max(spec.EmitRate, 0.01f);
-		var interval = 60f / rate;
-		SetRange(cv.Generation.GenerationTime, interval, 0f, min: 0.0001f);
+		SetRange(cv.Generation.GenerationTime, 60f / rate, 0f, min: 0.0001f);
 
-		// 親 (= 再生側が動かすエフェクト本体) の位置をどう受けるか。
-		// 既定の Already は「常に追従」なので、再生中にエミッターを動かすと
-		// 生存中のパーティクルまで丸ごと移動してしまい軌跡が残らない。
+		// 再生側がエフェクトを動かしたとき、この粒が付いてくるかどうか。
+		// Effekseer の既定は「常に」なので、何もしないと軌跡が残らない。
 		cv.LocationEffectType.SetValue(spec.LocationBind == "always"
 			? TranslationParentEffectType.Already
 			: TranslationParentEffectType.WhenCreating);
-	}
 
-	// ---------------------------------------------------------------- 位置系
-
-	static void ApplyLocation(Node node, EffectSpec spec)
-	{
-		node.LocationValues.Type.SetValue(LocationValues.ParamaterType.PVA);
-		var pva = node.LocationValues.PVA;
+		node.DrawingValues.Type.SetValue(RendererValues.ParamaterType.None);
 
 		// 発生位置と、そのばらつき (矩形)
+		node.LocationValues.Type.SetValue(LocationValues.ParamaterType.PVA);
+		var pva = node.LocationValues.PVA;
 		SetRange(pva.Location.X, spec.EmitterX, spec.SpawnRangeX);
 		SetRange(pva.Location.Y, spec.EmitterY, spec.SpawnRangeY);
 		SetRange(pva.Location.Z, 0f, 0f);
+	}
 
-		// 初速: 角度 ± 広がり / 速さ ± ばらつき を XY の矩形範囲へ近似する。
-		// Effekseer の PVA 速度は軸ごとの min/max しか持たないため、扇形は外接矩形で表す。
-		// 広がりが狭いうちはほぼ一致し、360 度に近づくほど誤差が出る (既知の制限)。
-		var (vxMin, vxMax, vyMin, vyMax) = VelocityBox(
-			spec.Direction, spec.DirectionVariance,
-			Math.Max(spec.Speed - spec.SpeedVariance * 0.5f, 0f),
-			spec.Speed + spec.SpeedVariance * 0.5f);
+	// ---------------------------------------------------------- 粒ノード (子)
 
-		SetMinMax(pva.Velocity.X, vxMin, vxMax);
-		SetMinMax(pva.Velocity.Y, vyMin, vyMax);
+	static void ApplyParticle(Node node, EffectSpec spec, string texturePath)
+	{
+		var cv = node.CommonValues;
+
+		// 親 1 つにつき 1 粒。親が湧いた瞬間に出る。
+		cv.MaxGeneration.Infinite.SetValue(false);
+		cv.MaxGeneration.Value.SetValue(1);
+		SetRange(cv.Generation.GenerationTime, 1f, 0f, min: 0.0001f);
+		SetRange(cv.Life, spec.Life, spec.LifeVariance, min: 1);
+		cv.Removal.WhenLifeIsExtinct.SetValue(true);
+		cv.LocationEffectType.SetValue(TranslationParentEffectType.Already);
+
+		ApplyEmission(node, spec);
+		ApplyForces(node, spec);
+		ApplyScale(node, spec);
+		ApplyRotation(node, spec);
+		ApplyRenderer(node, spec, texturePath);
+	}
+
+	/// <summary>
+	/// 初速。「方向 ± 広がり」の扇形を、生成位置の円 (半径 0) と「回転を適用」で作る。
+	///
+	/// この設定にすると粒ごとに Z 軸まわりの回転が入るので、局所 +Y 方向へ出した
+	/// 初速がその向きへ回る。速度の大きさは向きに依らず一定に保たれる
+	/// (軸ごとの min/max しか持たない PVA では扇形を表せない)。
+	/// </summary>
+	static void ApplyEmission(Node node, EffectSpec spec)
+	{
+		var generation = node.GenerationLocationValues;
+		generation.Type.SetValue(GenerationLocationValues.ParameterType.Circle);
+		generation.EffectsRotation.SetValue(true);
+
+		var circle = generation.Circle;
+		circle.AxisDirection.SetValue(AxisType.ZAxis);
+		circle.Type.SetValue(GenerationLocationValues.CircleType.Random);
+		// 分割数で角度を刻まれると向きが飛び飛びになるので 1 にして、
+		// 連続な「角度のゆらぎ」のほうでばらつかせる
+		circle.Division.SetValue(1);
+		SetRange(circle.Radius, 0f, 0f);
+
+		// 円の角度は 0 が +Y (画面の上)。こちらの「方向」は 0 が +X なので 90 度ずらす。
+		// 回る向きはどちらも反時計回りで一致している。
+		var center = spec.Direction - 90f;
+		SetRange(circle.AngleStart, center, 0f);
+		SetRange(circle.AngleEnd, center, 0f);
+		SetRange(circle.AngleNoize, 0f, Math.Clamp(spec.DirectionVariance, 0f, 360f));
+
+		node.LocationValues.Type.SetValue(LocationValues.ParamaterType.PVA);
+		var pva = node.LocationValues.PVA;
+
+		// 位置は親 (発生ノード) が持っている。ここは 0。
+		SetRange(pva.Location.X, 0f, 0f);
+		SetRange(pva.Location.Y, 0f, 0f);
+		SetRange(pva.Location.Z, 0f, 0f);
+
+		// 局所 +Y へ出す。向きは上の回転が担当する。
+		SetRange(pva.Velocity.X, 0f, 0f);
+		SetRange(pva.Velocity.Y, spec.Speed, spec.SpeedVariance, min: 0f);
 		SetRange(pva.Velocity.Z, 0f, 0f);
+	}
 
-		// 重力はワールド空間の力として与える (PVA の加速度ではなくフォースフィールドを使う)
+	/// <summary>重力と空気抵抗。どちらもワールド空間の力として与える。</summary>
+	static void ApplyForces(Node node, EffectSpec spec)
+	{
 		if (spec.Gravity > 0f)
 		{
 			var ff = node.LocationAbsValues.LocalForceField1;
@@ -187,41 +248,12 @@ public static class EffectBuilder
 			ff.Gravity.Gravity.Z.SetValue(0f);
 		}
 
-		// 空気抵抗
 		if (spec.Drag > 0f)
 		{
 			var ff = node.LocationAbsValues.LocalForceField2;
 			ff.Type.SetValue(LocalForceFieldType.Drag);
 			ff.Power.SetValue(spec.Drag);
 		}
-	}
-
-	/// <summary>扇形 (角度範囲 × 速さ範囲) を包む XY の矩形を求める。</summary>
-	static (float xMin, float xMax, float yMin, float yMax) VelocityBox(
-		float directionDeg, float spreadDeg, float speedMin, float speedMax)
-	{
-		var half = Math.Clamp(spreadDeg, 0f, 360f) * 0.5f;
-		var a0 = directionDeg - half;
-		var a1 = directionDeg + half;
-
-		float xMin = float.MaxValue, xMax = float.MinValue;
-		float yMin = float.MaxValue, yMax = float.MinValue;
-
-		// 角度を細かく刻んで外接矩形を取る (端点だけだと軸をまたぐ場合に外す)
-		const int steps = 72;
-		for (var i = 0; i <= steps; i++)
-		{
-			var a = (a0 + (a1 - a0) * i / steps) * MathF.PI / 180f;
-			foreach (var speed in stackalloc[] { speedMin, speedMax })
-			{
-				var x = MathF.Cos(a) * speed;
-				var y = MathF.Sin(a) * speed;
-				xMin = MathF.Min(xMin, x); xMax = MathF.Max(xMax, x);
-				yMin = MathF.Min(yMin, y); yMax = MathF.Max(yMax, y);
-			}
-		}
-
-		return (xMin, xMax, yMin, yMax);
 	}
 
 	// ---------------------------------------------------------------- 大きさ
@@ -255,16 +287,26 @@ public static class EffectBuilder
 		SetRange(pva.Velocity.Z, spec.RotationSpeed, spec.RotationSpeedVariance);
 	}
 
+	/// <summary>回転のパラメータが 1 つでも使われているか。</summary>
+	static bool UsesRotation(EffectSpec spec) =>
+		spec.Rotation != 0f || spec.RotationVariance != 0f
+		|| spec.RotationSpeed != 0f || spec.RotationSpeedVariance != 0f;
+
 	// ------------------------------------------------------------ 描画 / 色
 
 	static void ApplyRenderer(Node node, EffectSpec spec, string texturePath)
 	{
 		node.DrawingValues.Type.SetValue(RendererValues.ParamaterType.Sprite);
 
-		// 既定の「ビルボード」はカメラを向くだけでノードの回転を捨ててしまう。
-		// 「回転ビルボード」ならカメラを向いたうえで Z 軸回転が乗る。
-		// 平行投影の 2D では見た目が「固定」と同じで、3D へ持って行っても破綻しない。
-		node.DrawingValues.Sprite.Billboard.SetValue(RendererValues.BillboardType.RotatedBillboard);
+		// 素の「ビルボード」はカメラを向くだけでノードの回転を丸ごと捨てる。
+		// 「回転ビルボード」はカメラを向いたうえで Z 軸回転が乗る。
+		//
+		// 放射のために入れている生成位置の回転もここに乗ってしまうので、回転を
+		// 使っていないときは素のビルボードにして、粒が画面に対して立ったままに
+		// なるようにしておく。回転を使うときは「進行方向からの角度」になる。
+		node.DrawingValues.Sprite.Billboard.SetValue(UsesRotation(spec)
+			? RendererValues.BillboardType.RotatedBillboard
+			: RendererValues.BillboardType.Billboard);
 
 		// 色は HSV + アルファ。Effekseer は HSVA をランタイム側でネイティブに解釈するので、
 		// 色相のばらつきがちゃんと「色相の帯」になる (RGB 個別ランダムにはならない)。

@@ -541,7 +541,10 @@ document.getElementById("btn-export").addEventListener("click", exportEffect);
 
 // ---------------------------------------------------------------- プレビュー
 
-const INSTANCE_MAX = 4000;
+// エフェクトは「発生ノード + 粒ノード」の 2 段構成なので、粒 1 つにつき
+// インスタンスが 2 つ要る。effekseer.js の既定 (4000) では足りなくなるので広げる。
+const INSTANCE_MAX = 12000;
+const INSTANCES_PER_PARTICLE = 2;
 const SELFTEST = new URLSearchParams(location.search).has("selftest");
 
 const canvas = document.getElementById("canvas");
@@ -674,8 +677,9 @@ function frame() {
   if (context) {
     const zoom = step(w, h);
     updateFrameGuide(zoom);
-    // 空き枠から逆算した、いま生きているインスタンス数
-    statsEl.textContent = `particles: ${INSTANCE_MAX - context.getRestInstancesCount()}`;
+    // 空き枠から逆算したインスタンス数を、粒の数に直して見せる
+    const instances = INSTANCE_MAX - context.getRestInstancesCount();
+    statsEl.textContent = `particles: ${Math.round(instances / INSTANCES_PER_PARTICLE)}`;
   }
 
   requestAnimationFrame(frame);
@@ -701,7 +705,7 @@ function initThumbnailContext() {
   // toDataURL でフレームバッファを読むので保持を頼んでおく
   thumbGl = thumbCanvas.getContext("webgl", { alpha: false, depth: true, antialias: true, preserveDrawingBuffer: true });
   thumbContext = effekseer.createContext();
-  thumbContext.init(thumbGl);
+  thumbContext.init(thumbGl, { instanceMaxCount: INSTANCE_MAX, squareMaxCount: 20000 });
   return thumbContext;
 }
 
@@ -1002,7 +1006,7 @@ if (!gl) {
 } else {
   effekseer.initRuntime("vendor/effekseer.wasm", () => {
     context = effekseer.createContext();
-    context.init(gl);
+    context.init(gl, { instanceMaxCount: INSTANCE_MAX, squareMaxCount: 20000 });
     setStatus("準備完了");
     if (SELFTEST) {
       runSelfTest();
