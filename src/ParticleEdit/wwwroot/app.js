@@ -744,6 +744,14 @@ async function exportEffect() {
   });
   if (!res.ok) { setStatus("書き出しに失敗: " + res.status, true); return; }
 
+  // particleedit.json で書き出し先が決まっているときは、サーバがそこへ置いて
+  // 置いた場所を返してくる (ブラウザからは保存先を選べないため)
+  if ((res.headers.get("Content-Type") || "").startsWith("application/json")) {
+    const done = await res.json();
+    setStatus(`書き出しました: ${done.path}`);
+    return;
+  }
+
   // サーバが Content-Disposition で付けたファイル名をそのまま使う
   const disposition = res.headers.get("Content-Disposition") || "";
   const matched = /filename="?([^";]+)"?/.exec(disposition);

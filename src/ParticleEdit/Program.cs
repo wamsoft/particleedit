@@ -5,13 +5,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 var app = builder.Build();
 
-// 書き込むものはすべてコンテンツルートの下に置く。dotnet run なら
-// src/ParticleEdit/、publish したものなら実行ファイルの隣になる。
-var dataRoot = app.Environment.ContentRootPath;
-EffectBuilder.Initialize(Path.Combine(dataRoot, "work"));
-ImageStore.Initialize(Path.Combine(dataRoot, "images"));
-var projects = new ProjectStore(Path.Combine(dataRoot, "projects"));
-var userTemplates = new ProjectStore(Path.Combine(dataRoot, "templates"));
+// 置き場は particleedit.json で差し替えられる。基準はコンテンツルートで、
+// dotnet run なら src/ParticleEdit/、publish したものなら実行ファイルの隣。
+var config = EditorConfig.Load(app.Environment.ContentRootPath, out var configNote);
+EffectBuilder.Initialize(config.WorkPath);
+ImageStore.Initialize(config.ImagesPath);
+var projects = new ProjectStore(config.ProjectsPath);
+var userTemplates = new ProjectStore(config.TemplatesPath);
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -23,6 +23,13 @@ app.MapGet("/Texture/{name}.png", (string name) =>
 {
 	var bytes = EffectBuilder.ReadTexture(name + ".png");
 	return bytes == null ? Results.NotFound() : Results.Bytes(bytes, "image/png");
+});
+
+// UI が知っておきたい設定 (書き出し先が決まっているかどうか)
+app.MapGet("/api/config", () => new
+{
+	exportDirectory = config.ExportPath,
+	projectDirectory = config.ProjectsPath,
 });
 
 // 形のプリセット一覧 (UI のボタン用)
@@ -170,14 +177,29 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 		}
 	}
 
+	// 書き出し先が決まっているならそこへ置く。ブラウザからは保存先を選べないので、
+	// 置き場が決まっている運用ではこのほうが手数が少ない。
+	var directory = config.ExportPath;
+	if (directory != null)
+	{
+		Directory.CreateDirectory(directory);
+		var path = Path.Combine(directory, fileName!);
+		File.WriteAllBytes(path, ms.ToArray());
+		return Results.Ok(new { path });
+	}
+
 	return Results.Bytes(ms.ToArray(), "application/zip", fileName);
 });
 
+var url = $"http://localhost:{config.Port}";
 Console.WriteLine();
-Console.WriteLine("  ParticleEdit  ->  http://localhost:5188");
+if (configNote != null) Console.WriteLine("  " + configNote);
+Console.WriteLine($"  ParticleEdit  ->  {url}");
+Console.WriteLine($"  プロジェクト  :  {config.ProjectsPath}");
+Console.WriteLine($"  書き出し先    :  {config.ExportPath ?? "(ブラウザのダウンロード)"}");
 Console.WriteLine();
 
-app.Run("http://localhost:5188");
+app.Run(url);
 
 static void AddEntry(ZipArchive zip, string path, byte[] bytes)
 {

@@ -6,3 +6,5 @@ projects/
 templates/
 images/
 work/
+# 置き場の設定は環境ごとなので持たない (README の「置き場の設定」参照)
+particleedit.json

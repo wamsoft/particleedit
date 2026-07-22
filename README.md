@@ -60,6 +60,35 @@ dotnet publish src/ParticleEdit -c Release -r win-x64      # osx-arm64 / linux-x
 `Assembly.Location` から自分の場所を求めており、素の単一ファイルではこれが空になって
 `Core.Initialize` が落ちる。自己展開形式にすると実体がディスクに出るので通る。
 
+## 置き場の設定 (particleedit.json)
+
+実行ファイルの隣 (`dotnet run` なら `src/ParticleEdit/`) に `particleedit.json` を
+置くと、読み書きする場所を変えられる。無くても動く。
+
+```json
+{
+  "port": 5188,
+  "projects": "../../resources/effect",
+  "export": "../../data/effect"
+}
+```
+
+| キー | 既定 | 意味 |
+|---|---|---|
+| `port` | 5188 | 待ち受けポート |
+| `projects` | `projects` | プロジェクト (編集を再開できる形式) の置き場 |
+| `templates` | `templates` | 自分で追加したテンプレートの置き場 |
+| `images` | `images` | 取り込んだ画像の置き場 |
+| `work` | `work` | テクスチャの作業用。消しても作り直される |
+| `export` | (なし) | 書き出し先 |
+
+パスは設定ファイルからの相対。絶対パスも書ける。
+
+**`export` を指定すると、エクスポートがそのフォルダへ直接ファイルを置く**
+(指定しなければブラウザのダウンロード)。ブラウザからは保存先を選べないので、
+置き場が決まっている運用ではこちらのほうが手数が少ない。
+起動時にどこを見ているかがコンソールへ出る。
+
 ## パラメータの追加のしかた
 
 1. `src/ParticleEdit/EffectSpec.cs` にプロパティを足す
