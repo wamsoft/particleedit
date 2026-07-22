@@ -163,7 +163,7 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 		if (!ExportManifest.IsEmpty(spec))
 		{
 			AddEntry(zip, ExportManifest.FileName, ExportManifest.Build(spec, effectEntry));
-			foreach (var motion in spec.Motions.Where(m => m.IsUsable))
+			foreach (var motion in ExportManifest.BundledMotions(spec))
 			{
 				AddEntry(zip, ExportManifest.MotionPath(motion), ExportManifest.BuildMotion(motion));
 			}

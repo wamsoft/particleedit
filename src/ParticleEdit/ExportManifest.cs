@@ -25,8 +25,17 @@ public static class ExportManifest
 	};
 
 	/// <summary>同梱するものが何も無ければ true。目録ごと省ける。</summary>
-	public static bool IsEmpty(EffectSpec spec) =>
-		spec.EmitterMotion != "dynamic" && spec.Motions.Count == 0;
+	public static bool IsEmpty(EffectSpec spec) => spec.EmitterMotion == "none";
+
+	/// <summary>
+	/// 軌道を別ファイルとして同梱するか。
+	/// 焼き込んだエフェクトは自分で動くので、組み込み先が同じ軌道をもう一度
+	/// 流すと二重に動いてしまう。同梱するのは外から動かすときだけにする。
+	/// </summary>
+	public static IEnumerable<MotionSpec> BundledMotions(EffectSpec spec) =>
+		spec.EmitterMotion == "dynamic"
+			? spec.Motions.Where(m => m.IsUsable)
+			: Enumerable.Empty<MotionSpec>();
 
 	public static byte[] Build(EffectSpec spec, string effectEntry)
 	{
@@ -52,10 +61,10 @@ public static class ExportManifest
 			manifest["bakedMotion"] = spec.MotionName;
 		}
 
-		if (spec.Motions.Count > 0)
+		var bundled = BundledMotions(spec).ToList();
+		if (bundled.Count > 0)
 		{
-			manifest["motions"] = spec.Motions
-				.Where(m => m.IsUsable)
+			manifest["motions"] = bundled
 				.Select(m => new
 				{
 					name = m.Name,
