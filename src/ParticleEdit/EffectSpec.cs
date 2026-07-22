@@ -114,6 +114,12 @@ public sealed class EffectSpec
 
 	public string BackgroundColor { get; set; } = "#101014";
 
+	/// <summary>
+	/// 背景画像の明るさ (0-100)。画像そのものはブラウザ側にしか持たない
+	/// (プロジェクトに入れると重くなるうえ、エフェクトとは関係がないため)。
+	/// </summary>
+	public float BackgroundBrightness { get; set; } = 100f;
+
 	/// <summary>組み込み先の画面サイズ。プレビューに枠として重ねて、大きさの当たりを付ける。</summary>
 	public int FrameWidth { get; set; } = 1280;
 	public int FrameHeight { get; set; } = 720;

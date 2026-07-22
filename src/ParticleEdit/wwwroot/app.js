@@ -114,6 +114,9 @@ const GROUPS = [
     params: [
       { key: "backgroundColor", label: "背景色", type: "color", value: "#101014",
         help: "見やすさのためのもの。エフェクトには入らない" },
+      { type: "background-image" },
+      { key: "backgroundBrightness", label: "背景画像の明るさ", min: 0, max: 100, step: 1, value: 100,
+        help: "背景を暗くすると粒が見やすくなる" },
       { key: "showFrame", label: "画面サイズの枠を表示", type: "toggle", value: true,
         help: "組み込み先の画面サイズを枠として重ねる" },
       { type: "frame-presets" },
@@ -155,7 +158,9 @@ for (const g of GROUPS) for (const p of g.params) if (p.key) setPath(spec, p.key
 const controls = new Map();
 
 /// エフェクトデータに影響しない (= 作り直しが要らない) パラメータ
-const EDITOR_ONLY_KEYS = new Set(["backgroundColor", "showFrame", "frameWidth", "frameHeight"]);
+const EDITOR_ONLY_KEYS = new Set([
+  "backgroundColor", "backgroundBrightness", "showFrame", "frameWidth", "frameHeight",
+]);
 
 // ---------------------------------------------------------------- UI 構築
 
@@ -220,6 +225,10 @@ function buildPanel() {
       }
       if (p.type === "motion-editor") {
         page.appendChild(buildMotionEditor());
+        continue;
+      }
+      if (p.type === "background-image") {
+        page.appendChild(buildBackgroundEditor());
         continue;
       }
 
@@ -636,6 +645,218 @@ function initMotionRecording() {
   });
 }
 
+// ------------------------------------------------------------------ 背景画像
+// 組み込み先の絵に重ねたときの見えかたを確かめるためのもの。
+// 中央に原寸で敷くだけ (1 ワールド単位 = 1 ピクセルなので、枠と同じ寸法の絵なら
+// ちょうど枠を埋める)。エフェクトのデータには一切入らない。
+//
+// プロジェクトには保存しない。背景はエフェクトの一部ではないし、入れると
+// ファイルが重くなるため。代わりにブラウザ側へ覚えさせて、開き直しても残るようにする。
+
+const BACKGROUND_STORAGE_KEY = "particleedit.background";
+const BACKGROUND_MAX = 1920;   // 覚えさせる前に縮める上限
+
+let backgroundNoteEl = null;
+let backgroundImage = null;    // HTMLImageElement
+
+function buildBackgroundEditor() {
+  const box = document.createElement("div");
+  box.className = "row";
+
+  const buttons = document.createElement("div");
+  buttons.className = "motion-row";
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.style.display = "none";
+  input.addEventListener("change", () => {
+    if (input.files && input.files[0]) loadBackground(input.files[0]);
+    input.value = "";
+  });
+
+  const pick = document.createElement("button");
+  pick.type = "button";
+  pick.textContent = "背景画像…";
+  pick.addEventListener("click", () => input.click());
+
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.textContent = "外す";
+  clear.addEventListener("click", () => setBackground(null));
+
+  buttons.append(pick, clear, input);
+  box.appendChild(buttons);
+
+  backgroundNoteEl = document.createElement("div");
+  backgroundNoteEl.className = "motion-note";
+  box.appendChild(backgroundNoteEl);
+
+  return box;
+}
+
+function updateBackgroundNote() {
+  if (!backgroundNoteEl) return;
+  backgroundNoteEl.textContent = backgroundImage
+    ? `${backgroundImage.naturalWidth} × ${backgroundImage.naturalHeight} を中央に原寸で表示中`
+    : "組み込み先の絵を敷いて見えかたを確かめられます (保存はされません)";
+}
+
+/// 画像を読み込んで、大きすぎれば縮めてから覚えさせる。
+async function loadBackground(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, BACKGROUND_MAX / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas2d = document.createElement("canvas");
+    canvas2d.width = w;
+    canvas2d.height = h;
+    canvas2d.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+
+    // 覚えさせる先の容量が小さいので JPEG に落とす (背景の確認用なので十分)
+    setBackground(canvas2d.toDataURL("image/jpeg", 0.85));
+    setStatus(`背景画像を読み込みました (${w}×${h})`);
+  } catch (e) {
+    setStatus("背景画像の読み込みに失敗: " + e.message, true);
+  }
+}
+
+/// データ URL を背景にする。null で外す。
+function setBackground(dataUrl) {
+  if (!dataUrl) {
+    backgroundImage = null;
+    releaseBackgroundTexture();
+    try { localStorage.removeItem(BACKGROUND_STORAGE_KEY); } catch (e) { /* 覚えられなくても困らない */ }
+    updateBackgroundNote();
+    return;
+  }
+
+  const image = new Image();
+  image.addEventListener("load", () => {
+    backgroundImage = image;
+    releaseBackgroundTexture();     // 次の描画で作り直す
+    updateBackgroundNote();
+  });
+  image.addEventListener("error", () => setStatus("背景画像を表示できません", true));
+  image.src = dataUrl;
+
+  try {
+    localStorage.setItem(BACKGROUND_STORAGE_KEY, dataUrl);
+  } catch (e) {
+    setStatus("背景画像を覚えられませんでした (表示はされます)", true);
+  }
+}
+
+function restoreBackground() {
+  let saved = null;
+  try { saved = localStorage.getItem(BACKGROUND_STORAGE_KEY); } catch (e) { /* 同上 */ }
+  if (saved) setBackground(saved);
+  else updateBackgroundNote();
+}
+
+// --- 描画 -----------------------------------------------------------------
+// エフェクトと同じキャンバスへ、Effekseer が描く前に敷く。
+// キャンバスの外で CSS として重ねる手もあるが、加算合成の粒を透明なキャンバス越しに
+// 合成すると色が変わってしまうので、中で描いてしまうほうが素直。
+
+let bgProgram = null;
+let bgBuffer = null;
+let bgTexture = null;
+let bgUniform = null;
+
+function releaseBackgroundTexture() {
+  if (bgTexture && gl) gl.deleteTexture(bgTexture);
+  bgTexture = null;
+}
+
+function initBackgroundProgram() {
+  const compile = (type, source) => {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+  };
+
+  const vs = compile(gl.VERTEX_SHADER, `
+    attribute vec2 corner;
+    uniform vec2 half_size;
+    varying vec2 uv;
+    void main() {
+      // 画像の上下は逆なので v を反転する
+      uv = vec2(corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5);
+      gl_Position = vec4(corner * half_size, 0.0, 1.0);
+    }`);
+  const fs = compile(gl.FRAGMENT_SHADER, `
+    precision mediump float;
+    uniform sampler2D image;
+    uniform float brightness;
+    varying vec2 uv;
+    void main() {
+      gl_FragColor = vec4(texture2D(image, uv).rgb * brightness, 1.0);
+    }`);
+
+  bgProgram = gl.createProgram();
+  gl.attachShader(bgProgram, vs);
+  gl.attachShader(bgProgram, fs);
+  gl.bindAttribLocation(bgProgram, 0, "corner");
+  gl.linkProgram(bgProgram);
+
+  bgUniform = {
+    halfSize: gl.getUniformLocation(bgProgram, "half_size"),
+    image: gl.getUniformLocation(bgProgram, "image"),
+    brightness: gl.getUniformLocation(bgProgram, "brightness"),
+  };
+
+  bgBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, bgBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+}
+
+function drawBackground(w, h, zoom) {
+  if (!backgroundImage || !gl) return;
+  if (!bgProgram) initBackgroundProgram();
+
+  if (!bgTexture) {
+    bgTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, bgTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, backgroundImage);
+    // 2 の冪とは限らないのでミップマップも繰り返しも使えない
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  // 中央に原寸で置く。プレビューの縮小率だけ掛ける。
+  const halfX = backgroundImage.naturalWidth * zoom / w;
+  const halfY = backgroundImage.naturalHeight * zoom / h;
+
+  gl.useProgram(bgProgram);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bgBuffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, bgTexture);
+  gl.uniform1i(bgUniform.image, 0);
+  gl.uniform2f(bgUniform.halfSize, halfX, halfY);
+  gl.uniform1f(bgUniform.brightness, Math.max(0, (spec.backgroundBrightness ?? 100) / 100));
+
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+  gl.depthMask(false);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.depthMask(true);
+
+  gl.disableVertexAttribArray(0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.useProgram(null);
+}
+
 // ---------------------------------------------------------------- 形状エディタ
 // 形は「手続き的に生成する」か「取り込んだ画像を使う」かの 2 通り。
 // 手続き的なほうは下のスライダー群で、プリセットはその出発点。
@@ -993,6 +1214,7 @@ function clearToBackground() {
 /// 1 フレーム分の更新と描画。
 function step(w, h) {
   clearToBackground();
+  drawBackground(w, h, previewZoom(w, h));
   // 等倍なら 1 ワールド単位 = 1 CSS ピクセル。
   // 枠を出しているときは、枠が収まるぶんだけ視野を広げる (= 縮小表示)。
   const zoom = previewZoom(w, h);
@@ -1365,6 +1587,39 @@ async function runSelfTest() {
   }
   shapes.ok = shapes.checked.every((s) => s.ok);
 
+  // 背景画像: 敷いた絵が中央に原寸で出るか
+  spec.showFrame = false;
+  spec.emitRate = 1; spec.startSize = 1; spec.endSize = 1;
+  await rebuild();
+  await sleep(120);
+  const withoutBackground = renderAndMeasure(2);
+
+  const swatch = document.createElement("canvas");
+  swatch.width = 200; swatch.height = 100;
+  const swatchCtx = swatch.getContext("2d");
+  swatchCtx.fillStyle = "#c040a0";
+  swatchCtx.fillRect(0, 0, swatch.width, swatch.height);
+  setBackground(swatch.toDataURL("image/png"));
+  for (let i = 0; i < 40 && !backgroundImage; i++) await sleep(25);
+
+  const withBackground = renderAndMeasure(2);
+  setBackground(null);
+  await sleep(50);
+  const afterRemoval = renderAndMeasure(2);
+  spec.showFrame = savedShowFrame;
+
+  const background = {
+    expected: [swatch.width, swatch.height],
+    lit: [withoutBackground.litPixels, withBackground.litPixels, afterRemoval.litPixels],
+    bounds: withBackground.x ? [withBackground.x, withBackground.y] : null,
+    // 敷いたときだけ大きく増え、外すと戻る。範囲は画像の半分ぶん (dpr 込み)
+    ok: withBackground.litPixels > withoutBackground.litPixels + 10000
+      && afterRemoval.litPixels < withBackground.litPixels / 4
+      && !!withBackground.x
+      && Math.abs(Math.abs(withBackground.x[0]) - swatch.width / 2 * dpr) < 3 * dpr
+      && Math.abs(Math.abs(withBackground.y[0]) - swatch.height / 2 * dpr) < 3 * dpr,
+  };
+
   // タブとヘルプ: どのタブを選んでも表示されるページはひとつだけか、
   // どのパラメータもどこかのタブに出ているか
   const tabButtons = [...document.querySelectorAll("#params .tabs button")];
@@ -1395,9 +1650,10 @@ async function runSelfTest() {
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && emitter.ok && motion.ok && roundTrip.ok
+      ok: blank.length === 0 && emitter.ok && motion.ok && background.ok && roundTrip.ok
         && templates.ok && shapes.ok && ui.ok,
-      blankCycles: blank.length, ui, emitter, motion, roundTrip, templates, shapes, cycles,
+      blankCycles: blank.length, ui, emitter, motion, background, roundTrip,
+      templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }
@@ -1406,6 +1662,7 @@ async function runSelfTest() {
 
 buildPanel();
 initMotionRecording();
+restoreBackground();
 syncControls();
 refreshProjectList();
 
