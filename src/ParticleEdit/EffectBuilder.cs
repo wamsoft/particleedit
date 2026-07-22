@@ -75,6 +75,7 @@ public static class EffectBuilder
 			ApplyCommon(node, spec);
 			ApplyLocation(node, spec);
 			ApplyScale(node, spec);
+			ApplyRotation(node, spec);
 			ApplyRenderer(node, spec, texturePath);
 
 			var efk = new Effekseer.Binary.Exporter().Export(Core.Root, 1.0f);
@@ -111,7 +112,11 @@ public static class EffectBuilder
 			sb.AppendLine($"Scale.Type        = {node.ScalingValues.Type.Value}");
 			sb.AppendLine($"  Start X         = {ease.Start.X.Min}..{ease.Start.X.Max}");
 			sb.AppendLine($"  End   X         = {ease.End.X.Min}..{ease.End.X.Max}");
+			sb.AppendLine($"Rotation.Type     = {node.RotationValues.Type.Value}");
+			sb.AppendLine($"  Angle  Z (deg)  = {node.RotationValues.PVA.Rotation.Z.Min}..{node.RotationValues.PVA.Rotation.Z.Max}");
+			sb.AppendLine($"  Speed  Z (deg)  = {node.RotationValues.PVA.Velocity.Z.Min}..{node.RotationValues.PVA.Velocity.Z.Max}");
 			sb.AppendLine($"Drawing.Type      = {node.DrawingValues.Type.Value}");
+			sb.AppendLine($"Billboard         = {node.DrawingValues.Sprite.Billboard.Value}");
 			sb.AppendLine($"ColorAll.Type     = {color.Type.Value}  space={color.Easing.Start.ColorSpace}");
 			sb.AppendLine($"  Start HSVA      = H {color.Easing.Start.R.Min}..{color.Easing.Start.R.Max}  S {color.Easing.Start.G.Min}..{color.Easing.Start.G.Max}  V {color.Easing.Start.B.Min}..{color.Easing.Start.B.Max}  A {color.Easing.Start.A.Min}..{color.Easing.Start.A.Max}");
 			sb.AppendLine($"  End   HSVA      = H {color.Easing.End.R.Min}..{color.Easing.End.R.Max}  A {color.Easing.End.A.Min}..{color.Easing.End.A.Max}");
@@ -235,11 +240,31 @@ public static class EffectBuilder
 		SetRange(easing.End.Z, 1f, 0f);
 	}
 
+	// ---------------------------------------------------------------- 回転
+
+	/// <summary>
+	/// 画面内での粒の回転。Effekseer は 3 軸持っているが、2D で見えるのは Z 軸だけ。
+	/// 角度は度で持ち、書き出し時にラジアンへ変換される。
+	/// </summary>
+	static void ApplyRotation(Node node, EffectSpec spec)
+	{
+		node.RotationValues.Type.SetValue(RotationValues.ParamaterType.PVA);
+		var pva = node.RotationValues.PVA;
+
+		SetRange(pva.Rotation.Z, spec.Rotation, spec.RotationVariance);
+		SetRange(pva.Velocity.Z, spec.RotationSpeed, spec.RotationSpeedVariance);
+	}
+
 	// ------------------------------------------------------------ 描画 / 色
 
 	static void ApplyRenderer(Node node, EffectSpec spec, string texturePath)
 	{
 		node.DrawingValues.Type.SetValue(RendererValues.ParamaterType.Sprite);
+
+		// 既定の「ビルボード」はカメラを向くだけでノードの回転を捨ててしまう。
+		// 「回転ビルボード」ならカメラを向いたうえで Z 軸回転が乗る。
+		// 平行投影の 2D では見た目が「固定」と同じで、3D へ持って行っても破綻しない。
+		node.DrawingValues.Sprite.Billboard.SetValue(RendererValues.BillboardType.RotatedBillboard);
 
 		// 色は HSV + アルファ。Effekseer は HSVA をランタイム側でネイティブに解釈するので、
 		// 色相のばらつきがちゃんと「色相の帯」になる (RGB 個別ランダムにはならない)。

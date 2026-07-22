@@ -33,6 +33,10 @@ const GROUPS = [
       { key: "startSizeVariance", label: "開始サイズのばらつき", min: 0,  max: 600, step: 1, value: 26 },
       { key: "endSize",           label: "終了サイズ",         min: 0,   max: 600, step: 1, value: 0 },
       { key: "endSizeVariance",   label: "終了サイズのばらつき", min: 0,  max: 600, step: 1, value: 0 },
+      { key: "rotation",              label: "発生時の角度 (度)",   min: 0,    max: 360, step: 1,   value: 0 },
+      { key: "rotationVariance",      label: "角度のばらつき (度)", min: 0,    max: 360, step: 1,   value: 0 },
+      { key: "rotationSpeed",         label: "回転速度 (度/フレーム)", min: -20, max: 20, step: 0.1, value: 0 },
+      { key: "rotationSpeedVariance", label: "回転速度のばらつき",  min: 0,    max: 40,  step: 0.1, value: 0 },
     ],
   },
   {

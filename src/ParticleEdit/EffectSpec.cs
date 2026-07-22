@@ -58,6 +58,14 @@ public sealed class EffectSpec
 	public float EndSize { get; set; } = 0f;
 	public float EndSizeVariance { get; set; } = 0f;
 
+	/// <summary>発生時の角度 (度) と、その幅。反時計回り。</summary>
+	public float Rotation { get; set; } = 0f;
+	public float RotationVariance { get; set; } = 0f;
+
+	/// <summary>1 フレームあたりの回転量 (度) と、その幅。正で反時計回り。</summary>
+	public float RotationSpeed { get; set; } = 0f;
+	public float RotationSpeedVariance { get; set; } = 0f;
+
 	// --- 色 ---
 	/// <summary>
 	/// 色相 (0-360) / 彩度 (0-100) / 明度 (0-100)。ばらつきは全体の幅。

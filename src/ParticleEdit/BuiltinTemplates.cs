@@ -76,7 +76,8 @@ public static class BuiltinTemplates
 			Gravity = 0, Drag = 0,
 			Life = 46, LifeVariance = 30,
 			StartSize = 62, StartSizeVariance = 34, EndSize = 0,
-			Hue = 48, HueVariance = 70, Saturation = 60, SaturationVariance = 40,
+			RotationVariance = 360,
+				Hue = 48, HueVariance = 70, Saturation = 60, SaturationVariance = 40,
 			Brightness = 100, Blend = "add", Shape = Shapes.Star,
 		}),
 
@@ -87,7 +88,8 @@ public static class BuiltinTemplates
 			Gravity = 0.02f, GravityDirection = 270, Drag = 0.03f,
 			Life = 90, LifeVariance = 40,
 			StartSize = 46, StartSizeVariance = 24, EndSize = 0,
-			Hue = 45, HueVariance = 40, Saturation = 80, Brightness = 100,
+			RotationVariance = 360, RotationSpeed = 2, RotationSpeedVariance = 4,
+				Hue = 45, HueVariance = 40, Saturation = 80, Brightness = 100,
 			Blend = "add", Shape = Shapes.Star,
 		}),
 
@@ -121,7 +123,8 @@ public static class BuiltinTemplates
 			Gravity = 0.03f, GravityDirection = 270, Drag = 0.025f,
 			Life = 160, LifeVariance = 60,
 			StartSize = 30, StartSizeVariance = 16, EndSize = 30, EndSizeVariance = 16,
-			Hue = 0, HueVariance = 360, Saturation = 90, Brightness = 100,
+			RotationVariance = 360, RotationSpeedVariance = 16,
+				Hue = 0, HueVariance = 360, Saturation = 90, Brightness = 100,
 			Blend = "blend", Shape = Shapes.Square,
 		}),
 
@@ -144,7 +147,8 @@ public static class BuiltinTemplates
 			Gravity = 0.008f, GravityDirection = 90, Drag = 0.02f,
 			Life = 95, LifeVariance = 45,
 			StartSize = 42, StartSizeVariance = 22, EndSize = 0,
-			Hue = 150, HueVariance = 90, Saturation = 75, SaturationVariance = 25,
+			RotationVariance = 360, RotationSpeedVariance = 6,
+				Hue = 150, HueVariance = 90, Saturation = 75, SaturationVariance = 25,
 			Brightness = 100, Blend = "add", Shape = Shapes.Star,
 		}),
 	};
