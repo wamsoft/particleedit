@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace ParticleEdit;
 
 /// <summary>
-/// 書き出した ZIP に同梱する目録 (particleedit.json)。
+/// 書き出した ZIP に同梱する目録 (effect.json)。
 ///
 /// エフェクトのバイナリには動的パラメータの「名前」が残らない (既定値と
 /// コンパイル済みのコードだけ) ので、名前と入力番号の対応はここで配る。
@@ -15,7 +15,8 @@ namespace ParticleEdit;
 /// </summary>
 public static class ExportManifest
 {
-	public const string FileName = "particleedit.json";
+	// 吉里吉里プラグインはこの名前を決め打ちで読む。特定のツール名は付けない。
+	public const string FileName = "effect.json";
 	public const string MotionDirectory = "motion";
 
 	static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)

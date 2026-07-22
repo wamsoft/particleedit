@@ -164,8 +164,9 @@ Effekseer の**動的パラメータ**を使う。発生位置を式に繋いだ
 組み込み先は入力に値を差し込むだけでよい。吉里吉里プラグインなら:
 
 ```tjs
-player.setDynamicInput(0, x);   // 発生位置。progress() より前に
-player.setDynamicInput(1, y);
+// 対応は effect.json から自動で読まれるので、名前でそのまま差し込める
+player.setDynamicInputByName("emitter.x", x);   // 発生位置。progress() より前に
+player.setDynamicInputByName("emitter.y", y);
 player.progress(tick);
 ```
 
@@ -249,20 +250,22 @@ Texture/*.png   そのプロジェクトが使っているテクスチャ
 | `efk` | `<名前>.zip` | `<名前>.efk` + `Texture/` | ランタイムに直接読ませる最小構成 |
 | `efkefc` | `<名前>.zip` | `<名前>.efkefc` + `Texture/` | 公式 Effekseer エディタで開いて作り込む |
 
-### 目録と軌道 (particleedit.json / motion/)
+### 目録と軌道 (effect.json / motion/)
 
 「組み込み先から動かす」で書き出したとき、または軌道を持っているときは、
 ZIP に目録と軌道が足される。Effekseer のランタイムはこれらを見ないので、
 読まない組み込み先には影響しない。
 
 ```
-particleedit.json     動的パラメータの名前と入力番号、軌道の一覧
+effect.json           動的パラメータの名前と入力番号、軌道の一覧
 motion/<名前>.json    軌道 1 本ぶん
 ```
 
 **なぜ目録が要るか**: `.efk` バイナリには動的パラメータの**名前が残らない**
 (入るのは既定値とコンパイル済みのコードだけ)。名前で引きたい組み込み先のために、
-名前と入力番号の対応をここで配っている。
+名前と入力番号の対応をここで配っている。吉里吉里プラグインはこのファイルを
+`.efkzip` から自動で読んで `effect.meta` に載せ、`setDynamicInputByName()` の
+対応表として取り込む。名前が特定のツールに寄らないよう `effect.json` にしてある。
 
 ```json
 {
