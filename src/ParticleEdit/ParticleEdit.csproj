@@ -25,10 +25,40 @@
     <DebugType>none</DebugType>
     <!-- 上記のとおり承知のうえで単一ファイルにしているので黙らせる -->
     <NoWarn>$(NoWarn);IL3000</NoWarn>
+
+    <!--
+      配布物を「実行ファイル + wwwroot」だけにする。
+      いずれも自前ホストで動かすぶんには要らない。
+    -->
+    <!-- IIS 用の設定ファイル -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <!--
+      事前圧縮 (.gz / .br) を作らない。
+      配っているのは UseStaticFiles() なので圧縮済みのほうは配れず、
+      置いてあっても使われないまま容量だけ増える。
+    -->
+    <CompressionEnabled>false</CompressionEnabled>
+    <!-- 参照先 (EffekseerCore) の .pdb を持ってこない -->
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../third_party/EffekseerCore/EffekseerCore.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- 型定義は読む人のために置いてあるだけで、実行には要らない -->
+    <Content Remove="wwwroot/vendor/effekseer.d.ts" />
+    <None Include="wwwroot/vendor/effekseer.d.ts" />
+  </ItemGroup>
+
+  <!--
+    MapStaticAssets を使っていないので静的資材の対応表は要らない。
+    SDK 側に出さないスイッチが無い (CopyStaticWebAssetsEndpointsManifest は
+    ファイルがあれば無条件にコピーする) ので、publish の後に消す。
+  -->
+  <Target Name="RemoveStaticWebAssetsManifest" AfterTargets="Publish">
+    <Delete Files="$(PublishDir)$(TargetName).staticwebassets.endpoints.json" />
+  </Target>
 
 </Project>

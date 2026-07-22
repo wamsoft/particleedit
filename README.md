@@ -51,14 +51,47 @@ third_party/EffekseerCore/ Effekseer 公式エディタのコア (MIT, 無改変
 dotnet publish src/ParticleEdit -c Release -r win-x64      # osx-arm64 / linux-x64 など
 ```
 
-`ParticleEdit.exe` + `wwwroot/` が出るので、そのフォルダごと渡せば .NET の入っていない
-環境でも動く (ランタイム同梱のため 100MB 前後)。プロジェクト / テンプレート / 取り込んだ画像は
-実行ファイルの隣に作られる。RID を指定したときだけ単一ファイル化の設定が効くようにしてあるので、
-オプションを覚えておく必要はない。
+出るのはこれだけ。フォルダごと渡せば .NET の入っていない環境でも動く。
+
+```
+ParticleEdit.exe        ランタイム同梱の単一ファイル (100MB 前後)
+wwwroot/
+  index.html
+  app.js
+  style.css
+  vendor/effekseer.js
+  vendor/effekseer.wasm
+```
+
+RID を指定したときだけ配布用の設定が効くようにしてあるので、オプションを
+覚えておく必要はない。実行するとコンソールに URL と、読み書きする場所が出る。
+
+### 配布物を絞るためにしていること
+
+素の `dotnet publish` は要らないものも並べてくるので、csproj で止めている。
+いずれも**自前ホストで動かすぶんには使われない**。
+
+| 出るもの | 止めかた | 要らない理由 |
+|---|---|---|
+| `web.config` | `IsTransformWebConfigDisabled` | IIS 用 |
+| `*.staticwebassets.endpoints.json` | publish 後に消す target | `MapStaticAssets` を使っていない |
+| `*.gz` / `*.br` | `CompressionEnabled` | `UseStaticFiles()` は事前圧縮を配れない |
+| `EffekseerCore.pdb` | `AllowedReferenceRelatedFileExtensions` | 参照先のデバッグ情報 |
+| `effekseer.d.ts` | `Content Remove` | 型定義。読む人のために置いてあるだけ |
+
+対応表だけは SDK 側に出さないスイッチが無い
+(`CopyStaticWebAssetsEndpointsManifest` はファイルがあれば無条件にコピーする)
+ので、publish の後に消す target を書いている。
 
 **`IncludeAllContentForSelfExtract` を有効にしてある理由**: EffekseerCore が
 `Assembly.Location` から自分の場所を求めており、素の単一ファイルではこれが空になって
 `Core.Initialize` が落ちる。自己展開形式にすると実体がディスクに出るので通る。
+
+### 実行時に作られるもの
+
+書き込むのは設定で決めた場所だけで、実行ファイルの隣に勝手に何か作ることはない
+(既定のままだと隣になる、というだけ)。テクスチャの作業用フォルダは既定で
+**OS のテンポラリ**に置く。中身は消しても作り直される中間物しかない。
 
 ## 置き場の設定 (particleedit.json)
 
@@ -79,10 +112,12 @@ dotnet publish src/ParticleEdit -c Release -r win-x64      # osx-arm64 / linux-x
 | `projects` | `projects` | プロジェクト (編集を再開できる形式) の置き場 |
 | `templates` | `templates` | 自分で追加したテンプレートの置き場 |
 | `images` | `images` | 取り込んだ画像の置き場 |
-| `work` | `work` | テクスチャの作業用。消しても作り直される |
+| `work` | (OS のテンポラリ) | テクスチャの作業用。消しても作り直される |
 | `export` | (なし) | 書き出し先 |
 
-パスは設定ファイルからの相対。絶対パスも書ける。
+パスは設定ファイルからの相対。絶対パスも書ける。`work` は空にしておくと
+OS のテンポラリを使う (実行ファイルの隣を汚さない)。中間物しか置かないので、
+バージョン管理に入れる必要はない。
 
 **`export` を指定すると、エクスポートがそのフォルダへ直接ファイルを置く**
 (指定しなければブラウザのダウンロード)。ブラウザからは保存先を選べないので、

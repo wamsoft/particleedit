@@ -33,8 +33,11 @@ public sealed class EditorConfig
 	/// <summary>取り込んだ画像の置き場。</summary>
 	public string Images { get; set; } = "images";
 
-	/// <summary>テクスチャを組み立てる作業用。消しても作り直される。</summary>
-	public string Work { get; set; } = "work";
+	/// <summary>
+	/// テクスチャを組み立てる作業用。消しても作り直される中間物しか置かないので、
+	/// 空にしておくと OS のテンポラリを使う (実行ファイルの隣を汚さない)。
+	/// </summary>
+	public string? Work { get; set; }
 
 	/// <summary>
 	/// 書き出し先。指定するとエクスポートがここへ直接ファイルを置く。
@@ -49,7 +52,9 @@ public sealed class EditorConfig
 	public string ProjectsPath => Resolve(Projects);
 	public string TemplatesPath => Resolve(Templates);
 	public string ImagesPath => Resolve(Images);
-	public string WorkPath => Resolve(Work);
+	public string WorkPath => string.IsNullOrWhiteSpace(Work)
+		? Path.Combine(Path.GetTempPath(), "ParticleEdit", "work")
+		: Resolve(Work);
 	public string? ExportPath => string.IsNullOrWhiteSpace(Export) ? null : Resolve(Export);
 
 	string Resolve(string path) => Path.GetFullPath(Path.Combine(Root, path));
