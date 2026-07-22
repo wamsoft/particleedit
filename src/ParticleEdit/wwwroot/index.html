@@ -12,6 +12,7 @@
   <h1>ParticleEdit <span class="sub">Effekseer backend</span></h1>
   <div class="actions">
     <button id="btn-templates" type="button">テンプレート</button>
+    <button id="btn-help" type="button" title="使いかた (F1)">? ヘルプ</button>
     <span class="divider"></span>
     <input id="project-name" type="text" placeholder="プロジェクト名" spellcheck="false">
     <button id="btn-save" type="button">保存</button>
@@ -51,6 +52,127 @@
       <button id="btn-close-templates" type="button">閉じる</button>
     </div>
     <div id="template-grid" class="grid"></div>
+  </div>
+</div>
+
+<div id="help-overlay" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head">
+      <strong>使いかた</strong>
+      <span class="spacer"></span>
+      <button id="btn-close-help" type="button">閉じる</button>
+    </div>
+    <div id="help-body">
+
+      <h3>画面の見かた</h3>
+      <p>
+        左がプレビュー、右がパラメータです。スライダーを動かすとその場で作り直されて
+        すぐ反映されます。パラメータはタブで分かれていて、選んだタブは次に開いたときも残ります。
+      </p>
+      <table>
+        <tr><th>発生</th><td>いくつ・どこから・どちらへどれくらいの速さで出るか。重力と空気抵抗もここ</td></tr>
+        <tr><th>動き</th><td>発生位置そのものを動かす。軌道の記録もここ</td></tr>
+        <tr><th>粒</th><td>1 粒の寿命・大きさ・回転</td></tr>
+        <tr><th>色</th><td>色相・彩度・明度と、それぞれのばらつき。透明度</td></tr>
+        <tr><th>形</th><td>粒の形と合成方法</td></tr>
+        <tr><th>表示</th><td>背景色と画面枠。<strong>エフェクトデータには入りません</strong></td></tr>
+      </table>
+
+      <h3>座標と大きさ</h3>
+      <p>
+        プレビューは <strong>1 ワールド単位 = 1 ピクセル / 画面中央が原点 / +Y が画面上方向</strong>。
+        見えている大きさと位置が、そのまま組み込み先のピクセル数になります。
+      </p>
+      <p>
+        枠は組み込み先の画面サイズ (既定 1280×720) です。枠が収まるよう全体を縮小して表示し、
+        倍率をラベルに出します。<strong>枠の中の十字が発生位置で、つかんで動かせます。</strong>
+        細かく合わせたいときは「発生」タブのスライダーで。
+      </p>
+      <p class="note">
+        角度はどれも度で、反時計回り、90 度が画面の上方向です (方向・重力の向き・粒の回転・形の回転)。
+      </p>
+
+      <h3>発生位置を動かす</h3>
+      <p>「動き」タブの <strong>動かしかた</strong> で決めます。</p>
+      <table>
+        <tr><th>動かさない</th><td>発生位置は固定。既定</td></tr>
+        <tr><th>軌道を焼き込む</th><td>選んだ軌道をエフェクトに埋めます。<strong>再生すればそう動く</strong>ので、組み込み先のコードは要りません</td></tr>
+        <tr><th>組み込み先から動かす</th><td>位置を差し込める形で書き出します。値は組み込み先が毎フレーム入れます</td></tr>
+      </table>
+      <p>
+        <strong>軌道の作りかた</strong>: 「記録…」を押してプレビューの上をドラッグします。
+        押している間の位置を毎フレーム拾うので、ゆっくりなぞればゆっくりな動きになります。
+        離すと名前を聞かれます。やめるときは Esc。軌道は何本でも持てて、
+        選んでいるものがプレビューに点線で重なります。
+      </p>
+      <p>
+        粒が軌跡として残るかどうかは「発生」タブの <strong>発生位置を動かしたとき</strong> で決まります
+        (既定は「その場に置き去り」= 軌跡になる)。発生位置を動かさないなら、どちらでも見た目は変わりません。
+      </p>
+
+      <h3>形</h3>
+      <p>
+        粒の形はパラメータから作ります。辺の数 0 で円、3 以上で多角形、星形の比率を下げると星。
+        プリセット (ぼかし円 / 円 / リング / 星 / 四角 / 六角 / 光芒) はこのパラメータの
+        組み合わせでしかないので、押してから自由に動かせます。
+      </p>
+      <p>
+        手持ちの画像も「画像を取り込む…」から使えます。2 の冪の正方形 (最大 512) に整えてから
+        送っています。Effekseer の WebGL ランタイムが 2 の冪でないテクスチャを勝手に縮めるため、
+        揃えておかないとプレビューと書き出しで見た目がずれるためです。
+      </p>
+
+      <h3>テンプレート</h3>
+      <p>
+        ヘッダの「テンプレート」から 12 種を出発点に選べます。気に入った状態は
+        「現在の設定を追加」で自分のテンプレートにできます。
+      </p>
+
+      <h3>保存とエクスポート</h3>
+      <table>
+        <tr><th>保存</th><td>編集を再開するための形式。<strong>こちらが元データです</strong></td></tr>
+        <tr><th>エクスポート</th><td>配布用の一方向の書き出し。テクスチャを同梱した ZIP になります</td></tr>
+      </table>
+      <p>
+        パラメータから Effekseer のデータへの変換は逆算できないので、
+        <strong>書き出したファイルを読み戻してもスライダーの位置は分かりません。</strong>
+        直せなくなるので、元データのほうも必ず残してください。
+      </p>
+      <table>
+        <tr><th>efkzip</th><td>吉里吉里プラグイン用。通常はこれ</td></tr>
+        <tr><th>efk</th><td>ランタイムに直接読ませる最小構成</td></tr>
+        <tr><th>efkefc</th><td>Effekseer 公式エディタで開いて作り込みたいとき</td></tr>
+      </table>
+      <p class="note">
+        置き場が <code>particleedit.json</code> で決めてあるときは、エクスポートがそのフォルダへ
+        直接ファイルを置きます (ブラウザからは保存先を選べないため)。決めていなければダウンロードになります。
+      </p>
+
+      <h3>組み込み先から動かす場合</h3>
+      <p>
+        「組み込み先から動かす」で書き出すと、発生位置を外から差し込める形になります。
+        吉里吉里プラグインなら名前でそのまま渡せます。
+      </p>
+      <p>
+        <code>player.setDynamicInputByName("emitter.x", x)</code><br>
+        <code>player.setDynamicInputByName("emitter.y", y)</code>
+      </p>
+      <p>
+        渡す座標は <code>setCoord</code> と同じ<strong>画面中央が原点・Y が下向き</strong>のピクセルです
+        (符号合わせはエフェクト側に入っているので気にしなくて構いません)。名前の対応は
+        ZIP に入る <code>effect.json</code> から読まれます。記録した軌道も
+        <code>motion/*.json</code> として同梱されるので、どれを流すかは組み込み先で選べます。
+      </p>
+
+      <h3>思ったとおりに出ないとき</h3>
+      <ul>
+        <li><strong>小さくて目立たない</strong> … 効くのは「大きさ &gt; 密度 (発生数 × 寿命) &gt; 加算の重なり」の順です。発生数を上げるより粒を大きくするほうが安く効きます</li>
+        <li><strong>四角い塊に見える</strong> … 開始サイズのばらつきを増やすか、形のぼかしを上げてください</li>
+        <li><strong>粒の向きが揃わない</strong> … 回転を使うと角度の基準が進行方向になります。画面に対して固定したいときは回転のパラメータをすべて 0 に</li>
+        <li><strong>枠からはみ出す</strong> … 「表示」タブの画面サイズを組み込み先に合わせてから調整してください</li>
+      </ul>
+
+    </div>
   </div>
 </div>
 

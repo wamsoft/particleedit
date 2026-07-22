@@ -6,92 +6,134 @@
 
 const GROUPS = [
   {
-    title: "エミッター",
+    tab: "発生", title: "エミッター",
     params: [
-      { key: "emitRate",          label: "1秒あたりの発生数", min: 1,    max: 400,  step: 1,     value: 80 },
-      { key: "emitterX",          label: "発生位置 X",        min: -960, max: 960,  step: 1,     value: 0 },
-      { key: "emitterY",          label: "発生位置 Y",        min: -540, max: 540,  step: 1,     value: 0 },
-      { key: "spawnRangeX",       label: "発生位置のばらつき X", min: 0, max: 600,  step: 1,     value: 0 },
-      { key: "spawnRangeY",       label: "発生位置のばらつき Y", min: 0, max: 600,  step: 1,     value: 0 },
-      { key: "speed",             label: "初速",             min: 0,    max: 30,   step: 0.05,  value: 5 },
-      { key: "speedVariance",     label: "初速のばらつき",     min: 0,    max: 30,   step: 0.05,  value: 3 },
-      { key: "direction",         label: "方向 (度)",         min: 0,    max: 360,  step: 1,     value: 90 },
-      { key: "directionVariance", label: "方向の広がり (度)",  min: 0,    max: 360,  step: 1,     value: 40 },
-      { key: "gravity",           label: "重力",             min: 0,    max: 1,    step: 0.005, value: 0.06 },
-      { key: "gravityDirection",  label: "重力の向き (度)",    min: 0,    max: 360,  step: 1,     value: 270 },
-      { key: "drag",              label: "空気抵抗",          min: 0,    max: 1,    step: 0.005, value: 0 },
+      { key: "emitRate", label: "1秒あたりの発生数", min: 1, max: 400, step: 1, value: 80,
+        help: "多いほど密になる。重さもここで効く" },
+      { key: "emitterX", label: "発生位置 X", min: -960, max: 960, step: 1, value: 0,
+        help: "画面中央からの横位置。プレビューの十字をドラッグしても同じ" },
+      { key: "emitterY", label: "発生位置 Y", min: -540, max: 540, step: 1, value: 0,
+        help: "画面中央からの縦位置。正の値が画面の上方向" },
+      { key: "spawnRangeX", label: "発生位置のばらつき X", min: 0, max: 600, step: 1, value: 0,
+        help: "発生位置を横にばらけさせる幅。0 で 1 点から" },
+      { key: "spawnRangeY", label: "発生位置のばらつき Y", min: 0, max: 600, step: 1, value: 0,
+        help: "発生位置を縦にばらけさせる幅。0 で 1 点から" },
+      { key: "speed", label: "初速", min: 0, max: 30, step: 0.05, value: 5,
+        help: "1 フレームあたりに進むピクセル数" },
+      { key: "speedVariance", label: "初速のばらつき", min: 0, max: 30, step: 0.05, value: 3,
+        help: "速さのばらつきの幅。粒ごとにこの範囲で散る" },
+      { key: "direction", label: "方向 (度)", min: 0, max: 360, step: 1, value: 90,
+        help: "出ていく向き。0 が右、90 が上 (反時計回り)" },
+      { key: "directionVariance", label: "方向の広がり (度)", min: 0, max: 360, step: 1, value: 40,
+        help: "出ていく向きの広がり。360 で全方向へ放射する" },
+      { key: "gravity", label: "重力", min: 0, max: 1, step: 0.005, value: 0.06,
+        help: "1 フレームあたりに速度へ加わる量。0 で無効" },
+      { key: "gravityDirection", label: "重力の向き (度)", min: 0, max: 360, step: 1, value: 270,
+        help: "引かれる向き。270 が下、90 が上" },
+      { key: "drag", label: "空気抵抗", min: 0, max: 1, step: 0.005, value: 0,
+        help: "速度を減らしていく強さ。上げるとすぐ止まる" },
       { key: "locationBind", label: "発生位置を動かしたとき", type: "select", value: "spawn",
-        options: [["spawn", "その場に置き去り (軌跡になる)"], ["always", "まるごと追従"]] },
+        options: [["spawn", "その場に置き去り (軌跡になる)"], ["always", "まるごと追従"]],
+        help: "再生中に発生位置を動かしたとき、すでに出ている粒がどうなるか" },
     ],
   },
   {
-    title: "エミッタの動き",
+    tab: "動き", title: "エミッタの動き",
     params: [
       { key: "emitterMotion", label: "動かしかた", type: "select", value: "none",
         options: [
           ["none", "動かさない"],
           ["baked", "軌道を焼き込む"],
           ["dynamic", "組み込み先から動かす"],
-        ] },
+        ],
+        help: "発生位置そのものを動かすかどうか。詳しくはヘルプへ" },
       { type: "motion-editor" },
     ],
   },
   {
-    title: "パーティクル",
+    tab: "粒", title: "パーティクル",
     params: [
-      { key: "life",              label: "寿命 (フレーム)",    min: 1,   max: 300, step: 1, value: 70 },
-      { key: "lifeVariance",      label: "寿命のばらつき",      min: 0,   max: 300, step: 1, value: 30 },
-      { key: "startSize",         label: "開始サイズ",         min: 0,   max: 600, step: 1, value: 64 },
-      { key: "startSizeVariance", label: "開始サイズのばらつき", min: 0,  max: 600, step: 1, value: 26 },
-      { key: "endSize",           label: "終了サイズ",         min: 0,   max: 600, step: 1, value: 0 },
-      { key: "endSizeVariance",   label: "終了サイズのばらつき", min: 0,  max: 600, step: 1, value: 0 },
-      { key: "rotation",              label: "発生時の角度 (度)",   min: 0,    max: 360, step: 1,   value: 0 },
-      { key: "rotationVariance",      label: "角度のばらつき (度)", min: 0,    max: 360, step: 1,   value: 0 },
-      { key: "rotationSpeed",         label: "回転速度 (度/フレーム)", min: -20, max: 20, step: 0.1, value: 0 },
-      { key: "rotationSpeedVariance", label: "回転速度のばらつき",  min: 0,    max: 40,  step: 0.1, value: 0 },
+      { key: "life", label: "寿命 (フレーム)", min: 1, max: 300, step: 1, value: 70,
+        help: "粒が消えるまでのフレーム数 (60 でおよそ 1 秒)" },
+      { key: "lifeVariance", label: "寿命のばらつき", min: 0, max: 300, step: 1, value: 30,
+        help: "寿命のばらつきの幅" },
+      { key: "startSize", label: "開始サイズ", min: 0, max: 600, step: 1, value: 64,
+        help: "発生した瞬間の大きさ (ピクセル)" },
+      { key: "startSizeVariance", label: "開始サイズのばらつき", min: 0, max: 600, step: 1, value: 26,
+        help: "開始サイズのばらつきの幅" },
+      { key: "endSize", label: "終了サイズ", min: 0, max: 600, step: 1, value: 0,
+        help: "消える直前の大きさ。0 にすると縮みながら消える" },
+      { key: "endSizeVariance", label: "終了サイズのばらつき", min: 0, max: 600, step: 1, value: 0,
+        help: "終了サイズのばらつきの幅" },
+      { key: "rotation", label: "発生時の角度 (度)", min: 0, max: 360, step: 1, value: 0,
+        help: "発生したときの角度。基準は進行方向" },
+      { key: "rotationVariance", label: "角度のばらつき (度)", min: 0, max: 360, step: 1, value: 0,
+        help: "角度のばらつきの幅。360 でばらばらの向きになる" },
+      { key: "rotationSpeed", label: "回転速度 (度/フレーム)", min: -20, max: 20, step: 0.1, value: 0,
+        help: "1 フレームあたりに回る角度。正で反時計回り" },
+      { key: "rotationSpeedVariance", label: "回転速度のばらつき", min: 0, max: 40, step: 0.1, value: 0,
+        help: "回る速さのばらつきの幅" },
     ],
   },
   {
-    title: "カラー",
+    tab: "色", title: "カラー",
     params: [
-      { key: "hue",                label: "色相",           min: 0, max: 360, step: 1, value: 30 },
-      { key: "hueVariance",        label: "色相のばらつき",   min: 0, max: 360, step: 1, value: 40 },
-      { key: "saturation",         label: "彩度",           min: 0, max: 100, step: 1, value: 85 },
-      { key: "saturationVariance", label: "彩度のばらつき",   min: 0, max: 100, step: 1, value: 15 },
-      { key: "brightness",         label: "明度",           min: 0, max: 100, step: 1, value: 100 },
-      { key: "brightnessVariance", label: "明度のばらつき",   min: 0, max: 100, step: 1, value: 0 },
-      { key: "startAlpha",         label: "開始の透明度",     min: 0, max: 1,   step: 0.01, value: 1 },
-      { key: "endAlpha",           label: "終了の透明度",     min: 0, max: 1,   step: 0.01, value: 0 },
+      { key: "hue", label: "色相", min: 0, max: 360, step: 1, value: 30,
+        help: "色あい。0 が赤、120 が緑、240 が青" },
+      { key: "hueVariance", label: "色相のばらつき", min: 0, max: 360, step: 1, value: 40,
+        help: "色あいのばらつきの幅。広げると色とりどりになる" },
+      { key: "saturation", label: "彩度", min: 0, max: 100, step: 1, value: 85,
+        help: "0 で白黒、100 で鮮やか" },
+      { key: "saturationVariance", label: "彩度のばらつき", min: 0, max: 100, step: 1, value: 15 },
+      { key: "brightness", label: "明度", min: 0, max: 100, step: 1, value: 100,
+        help: "明るさ。加算合成では強さになる" },
+      { key: "brightnessVariance", label: "明度のばらつき", min: 0, max: 100, step: 1, value: 0 },
+      { key: "startAlpha", label: "開始の透明度", min: 0, max: 1, step: 0.01, value: 1,
+        help: "発生した瞬間の濃さ" },
+      { key: "endAlpha", label: "終了の透明度", min: 0, max: 1, step: 0.01, value: 0,
+        help: "消える直前の濃さ。0 にすると薄れながら消える" },
     ],
   },
   {
-    title: "描画",
+    tab: "形", title: "描画",
     params: [
       { key: "blend", label: "ブレンド", type: "select", value: "add",
-        options: [["add", "加算"], ["blend", "通常"]] },
+        options: [["add", "加算"], ["blend", "通常"]],
+        help: "加算は光もの向き。通常は紙吹雪など下の絵を隠すもの向き" },
     ],
   },
   {
-    title: "形状",
+    tab: "形", title: "形状",
     params: [
       { type: "shape-editor" },
-      { key: "shape.sides",     label: "辺の数 (0 = 円)", min: 0,   max: 16, step: 1,    value: 0 },
-      { key: "shape.starRatio", label: "星形",           min: 0.05, max: 1,  step: 0.01, value: 1 },
-      { key: "shape.hole",      label: "中抜き",          min: 0,   max: 0.9, step: 0.01, value: 0 },
-      { key: "shape.blur",      label: "ぼかし",          min: 0,   max: 1,  step: 0.01, value: 1 },
-      { key: "shape.falloff",   label: "ぼかしの曲がり",   min: 0.2, max: 4,  step: 0.05, value: 2 },
-      { key: "shape.rotation",  label: "回転 (度)",       min: 0,   max: 360, step: 1,   value: 0 },
-      { key: "shape.scale",     label: "大きさ",          min: 0.2, max: 1,  step: 0.01, value: 1 },
+      { key: "shape.sides", label: "辺の数 (0 = 円)", min: 0, max: 16, step: 1, value: 0,
+        help: "0 で円、3 以上でその辺数の多角形" },
+      { key: "shape.starRatio", label: "星形", min: 0.05, max: 1, step: 0.01, value: 1,
+        help: "1 で正多角形。下げるほど鋭い星になる" },
+      { key: "shape.hole", label: "中抜き", min: 0, max: 0.9, step: 0.01, value: 0,
+        help: "中心をくり抜く割合。上げるとリングになる" },
+      { key: "shape.blur", label: "ぼかし", min: 0, max: 1, step: 0.01, value: 1,
+        help: "縁のぼかし幅。0 でくっきり、1 で中心から滑らかに減衰" },
+      { key: "shape.falloff", label: "ぼかしの曲がり", min: 0.2, max: 4, step: 0.05, value: 2,
+        help: "減衰のカーブ。大きいほど中心に濃さが集まる" },
+      { key: "shape.rotation", label: "回転 (度)", min: 0, max: 360, step: 1, value: 0,
+        help: "形そのものの向き。90 度で上 (反時計回り)" },
+      { key: "shape.scale", label: "大きさ", min: 0.2, max: 1, step: 0.01, value: 1,
+        help: "テクスチャいっぱいに対する比率。余白の調整" },
     ],
   },
   {
-    title: "プレビュー (エフェクトには含まれない)",
+    tab: "表示", title: "プレビュー (エフェクトには含まれない)",
     params: [
-      { key: "backgroundColor", label: "背景色", type: "color", value: "#101014" },
-      { key: "showFrame", label: "画面サイズの枠を表示", type: "toggle", value: true },
+      { key: "backgroundColor", label: "背景色", type: "color", value: "#101014",
+        help: "見やすさのためのもの。エフェクトには入らない" },
+      { key: "showFrame", label: "画面サイズの枠を表示", type: "toggle", value: true,
+        help: "組み込み先の画面サイズを枠として重ねる" },
       { type: "frame-presets" },
-      { key: "frameWidth",  label: "画面の幅",   min: 320, max: 2560, step: 16, value: 1280 },
-      { key: "frameHeight", label: "画面の高さ", min: 240, max: 1600, step: 16, value: 720 },
+      { key: "frameWidth", label: "画面の幅", min: 320, max: 2560, step: 16, value: 1280,
+        help: "組み込み先の画面の幅" },
+      { key: "frameHeight", label: "画面の高さ", min: 240, max: 1600, step: 16, value: 720,
+        help: "組み込み先の画面の高さ" },
     ],
   },
 ];
@@ -130,31 +172,61 @@ function formatNumber(v, step) {
   return v.toFixed(decimals);
 }
 
+// パラメータは数が多いので、グループをタブへ振り分けて出す。
+// 1 タブに複数グループが入るときだけグループ名の見出しを出す。
+
+const TAB_STORAGE_KEY = "particleedit.tab";
+
+const tabOf = (group) => group.tab || group.title;
+
 function buildPanel() {
   const panel = document.getElementById("params");
+
+  const tabBar = document.createElement("div");
+  tabBar.className = "tabs";
+  panel.appendChild(tabBar);
+
+  // タブごとの入れ物を、GROUPS に出てくる順で作る
+  const pages = new Map();
+  const groupsPerTab = new Map();
   for (const group of GROUPS) {
-    const title = document.createElement("div");
-    title.className = "group-title";
-    title.textContent = group.title;
-    panel.appendChild(title);
+    const tab = tabOf(group);
+    groupsPerTab.set(tab, (groupsPerTab.get(tab) || 0) + 1);
+    if (pages.has(tab)) continue;
+    const page = document.createElement("div");
+    page.className = "page hidden";
+    panel.appendChild(page);
+    pages.set(tab, page);
+  }
+
+  for (const group of GROUPS) {
+    const page = pages.get(tabOf(group));
+
+    if (groupsPerTab.get(tabOf(group)) > 1) {
+      const title = document.createElement("div");
+      title.className = "group-title";
+      title.textContent = group.title;
+      page.appendChild(title);
+    }
 
     for (const p of group.params) {
       if (p.type === "shape-editor") {
-        panel.appendChild(buildShapeEditor());
+        page.appendChild(buildShapeEditor());
         continue;
       }
       if (p.type === "frame-presets") {
-        panel.appendChild(buildFramePresets());
+        page.appendChild(buildFramePresets());
         continue;
       }
       if (p.type === "motion-editor") {
-        panel.appendChild(buildMotionEditor());
+        page.appendChild(buildMotionEditor());
         continue;
       }
 
       const row = document.createElement("div");
       row.className = "row";
       if (p.key.startsWith("shape.")) row.dataset.procedural = "1";
+      if (p.help) row.title = p.help;
 
       const label = document.createElement("div");
       label.className = "label";
@@ -176,7 +248,7 @@ function buildPanel() {
         controls.set(p.key, (v) => { input.checked = !!v; });
         label.appendChild(input);
         row.classList.add("row-toggle");
-        panel.appendChild(row);
+        page.appendChild(row);
         continue;
       }
 
@@ -218,9 +290,34 @@ function buildPanel() {
         row.appendChild(input);
       }
 
-      panel.appendChild(row);
+      page.appendChild(row);
     }
   }
+
+  // タブのボタン。選んだタブは次に開いたときも残す。
+  const buttons = new Map();
+  const select = (tab) => {
+    if (!pages.has(tab)) tab = pages.keys().next().value;
+    for (const [name, page] of pages) page.classList.toggle("hidden", name !== tab);
+    for (const [name, button] of buttons) button.classList.toggle("active", name === tab);
+    try { localStorage.setItem(TAB_STORAGE_KEY, tab); } catch (e) { /* 保存できなくても困らない */ }
+  };
+
+  for (const tab of pages.keys()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = tab;
+    button.addEventListener("click", () => select(tab));
+    buttons.set(tab, button);
+    tabBar.appendChild(button);
+  }
+
+  // ?tab=形 のように指定して開くこともできる (説明や不具合報告で場所を示すとき用)
+  let saved = new URLSearchParams(location.search).get("tab");
+  if (!saved) {
+    try { saved = localStorage.getItem(TAB_STORAGE_KEY); } catch (e) { /* 同上 */ }
+  }
+  select(saved || pages.keys().next().value);
 }
 
 /// 読み込んだパラメータを spec へ取り込み、UI 全体を追従させる。
@@ -1060,8 +1157,27 @@ document.getElementById("btn-templates").addEventListener("click", openTemplates
 document.getElementById("btn-add-template").addEventListener("click", addTemplate);
 document.getElementById("btn-close-templates").addEventListener("click", () => overlay.classList.add("hidden"));
 overlay.addEventListener("click", (ev) => { if (ev.target === overlay) overlay.classList.add("hidden"); });
+
+// ---------------------------------------------------------------- ヘルプ
+// 中身は index.html に直書き。ここは開け閉てだけ。
+
+const helpOverlay = document.getElementById("help-overlay");
+const showHelp = (on) => helpOverlay.classList.toggle("hidden", !on);
+
+document.getElementById("btn-help").addEventListener("click", () => showHelp(true));
+document.getElementById("btn-close-help").addEventListener("click", () => showHelp(false));
+helpOverlay.addEventListener("click", (ev) => { if (ev.target === helpOverlay) showHelp(false); });
+
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") overlay.classList.add("hidden");
+  if (ev.key === "Escape") {
+    overlay.classList.add("hidden");
+    showHelp(false);
+  }
+  // F1 でヘルプ。ブラウザ既定のヘルプは邪魔なので止める
+  if (ev.key === "F1") {
+    ev.preventDefault();
+    showHelp(helpOverlay.classList.contains("hidden"));
+  }
 });
 
 // ---------------------------------------------------------------- 自己診断
@@ -1240,13 +1356,39 @@ async function runSelfTest() {
   }
   shapes.ok = shapes.checked.every((s) => s.ok);
 
+  // タブとヘルプ: どのタブを選んでも表示されるページはひとつだけか、
+  // どのパラメータもどこかのタブに出ているか
+  const tabButtons = [...document.querySelectorAll("#params .tabs button")];
+  const pages = [...document.querySelectorAll("#params .page")];
+  let tabsOk = tabButtons.length >= 5 && pages.length === tabButtons.length;
+  for (const button of tabButtons) {
+    button.click();
+    if (pages.filter((page) => !page.classList.contains("hidden")).length !== 1) tabsOk = false;
+  }
+  const keys = GROUPS.flatMap((g) => g.params).filter((p) => p.key).map((p) => p.key);
+  const missing = keys.filter((key) => !controls.has(key));
+
+  const help = document.getElementById("help-overlay");
+  document.getElementById("btn-help").click();
+  const helpOpened = !help.classList.contains("hidden");
+  document.getElementById("btn-close-help").click();
+  const helpClosed = help.classList.contains("hidden");
+
+  const ui = {
+    tabs: tabButtons.map((b) => b.textContent),
+    missingControls: missing,
+    help: helpOpened && helpClosed,
+    ok: tabsOk && missing.length === 0 && helpOpened && helpClosed,
+  };
+
   const blank = cycles.filter((c) => c.litPixels === 0);
   const el = document.createElement("pre");
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && emitter.ok && motion.ok && roundTrip.ok && templates.ok && shapes.ok,
-      blankCycles: blank.length, emitter, motion, roundTrip, templates, shapes, cycles,
+      ok: blank.length === 0 && emitter.ok && motion.ok && roundTrip.ok
+        && templates.ok && shapes.ok && ui.ok,
+      blankCycles: blank.length, ui, emitter, motion, roundTrip, templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);
 }
@@ -1271,6 +1413,7 @@ if (!gl) {
       rebuild();
       requestAnimationFrame(frame);
       if (location.hash === "#templates") openTemplates();
+      if (location.hash === "#help") showHelp(true);
     }
   }, () => {
     setStatus("effekseer.wasm の読み込みに失敗しました", true);
