@@ -41,8 +41,22 @@ third_party/EffekseerCore/ Effekseer 公式エディタのコア (MIT, 無改変
 - **プレビューは公式の WebGL ランタイム** (`effekseer.js` + `effekseer.wasm`) に任せている。
   サーバが返した `.efk` のバイト列を `loadEffect(ArrayBuffer)` にそのまま渡すため、
   ファイルの書き出しを挟まずに数十 ms で差し替わる。
-- **触るツールは .NET SDK ひとつ。** 配布時は `dotnet publish -r <rid> --self-contained`
-  で OS ごとに単一実行ファイルにできる。
+- **触るツールは .NET SDK ひとつ。** 配布は下記のとおり `dotnet publish` だけで済む。
+
+## 配布
+
+```
+dotnet publish src/ParticleEdit -c Release -r win-x64      # osx-arm64 / linux-x64 など
+```
+
+`ParticleEdit.exe` + `wwwroot/` が出るので、そのフォルダごと渡せば .NET の入っていない
+環境でも動く (ランタイム同梱のため 100MB 前後)。プロジェクト / テンプレート / 取り込んだ画像は
+実行ファイルの隣に作られる。RID を指定したときだけ単一ファイル化の設定が効くようにしてあるので、
+オプションを覚えておく必要はない。
+
+**`IncludeAllContentForSelfExtract` を有効にしてある理由**: EffekseerCore が
+`Assembly.Location` から自分の場所を求めており、素の単一ファイルではこれが空になって
+`Core.Initialize` が落ちる。自己展開形式にすると実体がディスクに出るので通る。
 
 ## パラメータの追加のしかた
 

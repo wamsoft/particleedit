@@ -5,10 +5,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 var app = builder.Build();
 
-EffectBuilder.Initialize(Path.Combine(AppContext.BaseDirectory, "work"));
-ImageStore.Initialize(Path.Combine(app.Environment.ContentRootPath, "images"));
-var projects = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "projects"));
-var userTemplates = new ProjectStore(Path.Combine(app.Environment.ContentRootPath, "templates"));
+// 書き込むものはすべてコンテンツルートの下に置く。dotnet run なら
+// src/ParticleEdit/、publish したものなら実行ファイルの隣になる。
+var dataRoot = app.Environment.ContentRootPath;
+EffectBuilder.Initialize(Path.Combine(dataRoot, "work"));
+ImageStore.Initialize(Path.Combine(dataRoot, "images"));
+var projects = new ProjectStore(Path.Combine(dataRoot, "projects"));
+var userTemplates = new ProjectStore(Path.Combine(dataRoot, "templates"));
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

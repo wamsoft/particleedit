@@ -8,6 +8,25 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <!--
+    配布用。RID を指定して publish したときだけ効く。
+      dotnet publish src/ParticleEdit -c Release -r win-x64
+    実行ファイル 1 つ + wwwroot になる。ランタイムの同梱が要るので 100MB 前後。
+
+    IncludeAllContentForSelfExtract が要る理由: EffekseerCore が
+    Assembly.Location から自分の場所を求めており、素の単一ファイルだと
+    これが空になって Core.Initialize が落ちる。自己展開にすると実体が
+    ディスクに出るので通る。
+  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <DebugType>none</DebugType>
+    <!-- 上記のとおり承知のうえで単一ファイルにしているので黙らせる -->
+    <NoWarn>$(NoWarn);IL3000</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../third_party/EffekseerCore/EffekseerCore.csproj" />
   </ItemGroup>
