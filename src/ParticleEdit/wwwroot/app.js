@@ -14,6 +14,7 @@ const GROUPS = [
         help: "画面中央からの横位置。プレビューの十字をドラッグしても同じ" },
       { key: "emitterY", label: "発生位置 Y", min: -540, max: 540, step: 1, value: 0,
         help: "画面中央からの縦位置。正の値が画面の上方向" },
+      { type: "emitter-reset" },
       { key: "spawnRangeX", label: "発生位置のばらつき X", min: 0, max: 600, step: 1, value: 0,
         help: "発生位置を横にばらけさせる幅。0 で 1 点から" },
       { key: "spawnRangeY", label: "発生位置のばらつき Y", min: 0, max: 600, step: 1, value: 0,
@@ -245,6 +246,10 @@ function buildPanel() {
         page.appendChild(buildBackgroundEditor());
         continue;
       }
+      if (p.type === "emitter-reset") {
+        page.appendChild(buildEmitterReset());
+        continue;
+      }
 
       const row = document.createElement("div");
       row.className = "row";
@@ -417,10 +422,54 @@ function updateFrameGuide(zoom) {
   }
 
   // 発生位置の目印。ワールドは +Y が上、画面は +Y が下なので符号を反転する。
+  // 再生側の配置を掛けた後の位置に置く (そうしないと粒の出どころとずれる)。
+  const marker = placedPoint(spec.emitterX || 0, spec.emitterY || 0);
   emitterMarker.style.transform =
-    `translate(${(spec.emitterX || 0) * zoom}px, ${-(spec.emitterY || 0) * zoom}px)`;
+    `translate(${marker.x * zoom}px, ${-marker.y * zoom}px)`;
 
   updateMotionPath(zoom);
+}
+
+/// エフェクト内の座標を、再生側の配置 (位置・ズーム・回転) を掛けた後の座標へ直す。
+/// 目印と軌道の道すじを粒の出どころに合わせるために使う。
+function placedPoint(x, y) {
+  const scale = (spec.playZoom ?? 100) / 100;
+  const angle = (spec.playRotation ?? 0) * Math.PI / 180;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const sx = x * scale, sy = y * scale;
+  return {
+    x: sx * cos - sy * sin + (spec.playX ?? 0),
+    y: sx * sin + sy * cos + (spec.playY ?? 0),
+  };
+}
+
+/// 画面上の移動量を、エフェクト内の移動量へ戻す (placedPoint の逆)。
+function unplacedDelta(dx, dy) {
+  const scale = Math.max(0.01, (spec.playZoom ?? 100) / 100);
+  const angle = -(spec.playRotation ?? 0) * Math.PI / 180;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  return { x: (dx * cos - dy * sin) / scale, y: (dx * sin + dy * cos) / scale };
+}
+
+/// ドラッグで動かした発生位置を中央へ戻すボタン。
+function buildEmitterReset() {
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "発生位置を中央へ戻す";
+  button.className = "wide";
+  button.addEventListener("click", () => {
+    spec.emitterX = 0;
+    spec.emitterY = 0;
+    syncControls();
+    requestRebuild();
+    setStatus("発生位置を中央へ戻しました");
+  });
+
+  row.appendChild(button);
+  return row;
 }
 
 // --- 発生位置のドラッグ -----------------------------------------------------
@@ -434,13 +483,16 @@ emitterMarker.addEventListener("pointerdown", (event) => {
   const startX = event.clientX, startY = event.clientY;
   const baseX = spec.emitterX || 0, baseY = spec.emitterY || 0;
 
-  emitterMarker.setPointerCapture(event.pointerId);
+  // 取れなくても動かせるようにしておく (合成したイベントでは失敗する)
+  try { emitterMarker.setPointerCapture(event.pointerId); } catch (e) { /* 続行 */ }
   emitterMarker.classList.add("dragging");
   event.preventDefault();
 
   const onMove = (move) => {
-    spec.emitterX = Math.round(baseX + (move.clientX - startX) / zoom);
-    spec.emitterY = Math.round(baseY - (move.clientY - startY) / zoom);
+    // 画面での動きぶんを、再生側の配置を外した座標へ戻してから足す
+    const delta = unplacedDelta((move.clientX - startX) / zoom, -(move.clientY - startY) / zoom);
+    spec.emitterX = Math.round(baseX + delta.x);
+    spec.emitterY = Math.round(baseY + delta.y);
     // 動かしている間は該当のスライダーだけ追従させる
     // (syncControls は形状プレビューの取得まで走るので毎フレームは重い)
     controls.get("emitterX")(spec.emitterX);
@@ -622,7 +674,8 @@ function updateMotionPath(zoom) {
 
   const cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2;
   motionPolyline.setAttribute("points", motion.points
-    .map((p) => `${cx + (spec.emitterX + p.x) * zoom},${cy - (spec.emitterY + p.y) * zoom}`)
+    .map((p) => placedPoint(spec.emitterX + p.x, spec.emitterY + p.y))
+    .map((p) => `${cx + p.x * zoom},${cy - p.y * zoom}`)
     .join(" "));
 }
 
@@ -1738,6 +1791,37 @@ async function runSelfTest() {
       && Math.abs(first.x + 100) < 8 && Math.abs(halfway.x) < 8,
   };
 
+  // 発生位置のドラッグ: 目印をつかんで動かすと値が変わるか。
+  // 再生側のズームを掛けているときは、その逆をたどってエフェクト内の量に戻る。
+  spec.emitterX = 0; spec.emitterY = 0;
+  spec.playX = 0; spec.playY = 0; spec.playZoom = 200; spec.playRotation = 0;
+  syncControls();
+  const marker = document.getElementById("emitter-marker");
+  const dragZoom = previewZoom(canvas.clientWidth, canvas.clientHeight);
+  const pointer = (type, x, y) => marker.dispatchEvent(
+    new PointerEvent(type, { pointerId: 1, clientX: x, clientY: y, bubbles: true }));
+  pointer("pointerdown", 400, 400);
+  pointer("pointermove", 460, 430);
+  pointer("pointerup", 460, 430);
+
+  // ズーム 200% なので、画面で 60px 動かすとエフェクト内では 30px ぶん
+  // 戻すボタンで中央へ帰るか
+  const dragged = [spec.emitterX, spec.emitterY];
+  [...document.querySelectorAll("#params button")]
+    .find((b) => b.textContent === "発生位置を中央へ戻す")?.click();
+
+  const drag = {
+    moved: dragged,
+    reset: [spec.emitterX, spec.emitterY],
+    expected: [Math.round(60 / dragZoom / 2), Math.round(-30 / dragZoom / 2)],
+    ok: Math.abs(dragged[0] - 60 / dragZoom / 2) < 2
+      && Math.abs(dragged[1] + 30 / dragZoom / 2) < 2
+      && spec.emitterX === 0 && spec.emitterY === 0,
+  };
+  spec.emitterX = 0; spec.emitterY = 0;
+  spec.playZoom = 100;
+  syncControls();
+
   // 背景画像: 敷いた絵が中央に原寸で出るか
   spec.showFrame = false;
   spec.emitRate = 1; spec.startSize = 1; spec.endSize = 1;
@@ -1801,9 +1885,9 @@ async function runSelfTest() {
   el.id = "selftest";
   el.textContent = JSON.stringify(
     {
-      ok: blank.length === 0 && emitter.ok && motion.ok && placement.ok && readout.ok
-        && background.ok && roundTrip.ok && templates.ok && shapes.ok && ui.ok,
-      blankCycles: blank.length, ui, emitter, motion, placement, readout, background,
+      ok: blank.length === 0 && emitter.ok && drag.ok && motion.ok && placement.ok
+        && readout.ok && background.ok && roundTrip.ok && templates.ok && shapes.ok && ui.ok,
+      blankCycles: blank.length, ui, emitter, drag, motion, placement, readout, background,
       roundTrip, templates, shapes, cycles,
     }, null, 1);
   document.body.appendChild(el);

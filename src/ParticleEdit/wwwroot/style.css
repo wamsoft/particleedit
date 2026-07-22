@@ -494,3 +494,9 @@ input[type=color] {
 }
 #help-body th { background: var(--panel-2); font-weight: 600; white-space: nowrap; }
 #help-body .note { color: var(--muted); font-size: 12px; }
+
+/* 行いっぱいのボタン (発生位置を戻す など) */
+.row > button.wide {
+  width: 100%;
+  padding: 6px 10px;
+}
