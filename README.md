@@ -87,6 +87,27 @@ RID を指定したときだけ配布用の設定が効くようにしてある�
 `Assembly.Location` から自分の場所を求めており、素の単一ファイルではこれが空になって
 `Core.Initialize` が落ちる。自己展開形式にすると実体がディスクに出るので通る。
 
+### 起動用の bat を置く場合
+
+組み込み先のプロジェクト直下に置くなら、こういう形になる。
+
+```bat
+@echo off
+setlocal
+set "EDITOR=%~dp0tools\particleedit"
+
+rem 起動を少し待ってからブラウザを開く (本体はこのウィンドウで動き続ける)
+start "" /b cmd /c "timeout /t 3 /nobreak >nul & start http://localhost:5188/"
+
+cd /d "%EDITOR%"
+"%EDITOR%\ParticleEdit.exe"
+```
+
+**実行ファイルはフルパスで書くこと。** `cd` してから名前だけで叩くと、
+`NoDefaultCurrentDirectoryInExePath` が設定されている環境で
+「内部コマンドまたは外部コマンドとして認識されていません」になる。
+`cd` 自体は残しておく (設定ファイルの相対パスがそこを基準に解決される)。
+
 ### 実行時に作られるもの
 
 書き込むのは設定で決めた場所だけで、実行ファイルの隣に勝手に何か作ることはない
