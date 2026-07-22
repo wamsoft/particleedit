@@ -18,6 +18,8 @@ const GROUPS = [
       { key: "gravity",           label: "重力",             min: 0,    max: 1,    step: 0.005, value: 0.06 },
       { key: "gravityDirection",  label: "重力の向き (度)",    min: 0,    max: 360,  step: 1,     value: 270 },
       { key: "drag",              label: "空気抵抗",          min: 0,    max: 1,    step: 0.005, value: 0 },
+      { key: "locationBind", label: "発生位置を動かしたとき", type: "select", value: "spawn",
+        options: [["spawn", "その場に置き去り (軌跡になる)"], ["always", "まるごと追従"]] },
     ],
   },
   {

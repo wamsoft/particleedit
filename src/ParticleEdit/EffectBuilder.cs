@@ -138,6 +138,13 @@ public static class EffectBuilder
 		var rate = Math.Max(spec.EmitRate, 0.01f);
 		var interval = 60f / rate;
 		SetRange(cv.Generation.GenerationTime, interval, 0f, min: 0.0001f);
+
+		// 親 (= 再生側が動かすエフェクト本体) の位置をどう受けるか。
+		// 既定の Already は「常に追従」なので、再生中にエミッターを動かすと
+		// 生存中のパーティクルまで丸ごと移動してしまい軌跡が残らない。
+		cv.LocationEffectType.SetValue(spec.LocationBind == "always"
+			? TranslationParentEffectType.Already
+			: TranslationParentEffectType.WhenCreating);
 	}
 
 	// ---------------------------------------------------------------- 位置系

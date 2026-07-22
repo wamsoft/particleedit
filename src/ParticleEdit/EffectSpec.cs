@@ -32,6 +32,14 @@ public sealed class EffectSpec
 	/// <summary>空気抵抗。0 で無効。</summary>
 	public float Drag { get; set; } = 0f;
 
+	/// <summary>
+	/// 発生位置を再生中に動かしたとき、すでに出ているパーティクルがどうなるか。
+	/// "spawn" … 生成された場所に置き去りになる (動かすと軌跡が残る)
+	/// "always" … エミッターに剛体追従する (かたまりごと移動する)
+	/// 発生位置を動かさないなら見た目は変わらない。
+	/// </summary>
+	public string LocationBind { get; set; } = "spawn";
+
 	// --- パーティクル ---
 	/// <summary>寿命 (フレーム)</summary>
 	public int Life { get; set; } = 60;
