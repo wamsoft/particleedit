@@ -2389,6 +2389,28 @@ async function runSelfTest() {
   document.body.appendChild(el);
 }
 
+// ---------------------------------------------------------------- サーバの後始末
+// このページが生きているあいだだけサーバへ心拍を送る。ページを閉じれば心拍が
+// 途絶え、サーバは一定時間で自分を畳む (裏に残り続けないように)。
+// selftest でも送る。ヘッドレスのブラウザが終われば心拍も止まり、やはり畳まれる。
+
+function pingServer(path) {
+  // 失敗は無視でよい (サーバが先に落ちていることもある)
+  try { fetch(path, { method: "POST", keepalive: true }).catch(() => {}); } catch (_) {}
+}
+
+pingServer("/api/heartbeat");
+setInterval(() => pingServer("/api/heartbeat"), 5000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") pingServer("/api/heartbeat");
+});
+// タブを閉じる/離れるとき、畳むのを待たせないよう合図を送る。
+// sendBeacon はページが消える瞬間でも届く。
+window.addEventListener("pagehide", () => {
+  if (navigator.sendBeacon) navigator.sendBeacon("/api/bye");
+  else pingServer("/api/bye");
+});
+
 // ---------------------------------------------------------------- 起動
 
 buildPanel();

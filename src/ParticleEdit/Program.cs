@@ -18,8 +18,17 @@ ImageStore.Initialize(config.ImagesPath);
 var projects = new ProjectStore(config.ProjectsPath);
 var userTemplates = new ProjectStore(config.TemplatesPath);
 
+// 使われなくなったら自分を畳む番人 (裏に残り続けないように)。
+// 心拍が途絶える / 標準入力が切れる、のどちらでも畳む。詳しくは Watchdog.cs。
+var watchdog = new Watchdog(app.Lifetime);
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// ブラウザが生きているあいだ定期的に叩いてくる。閉じれば途絶える。
+app.MapPost("/api/heartbeat", () => { watchdog.Beat(); return Results.Ok(); });
+// タブを閉じるときに sendBeacon で送られてくる合図。早めに畳むためのもの。
+app.MapPost("/api/bye", () => { watchdog.Bye(); return Results.Ok(); });
 
 // エフェクトのバイナリには "Texture/xxx.png" という相対パスが埋まっており、
 // effekseer.js の既定のリソースローダーがページ基準で取りに来るので、そのパスで配る。
@@ -259,6 +268,7 @@ Console.WriteLine($"  プロジェクト  :  {config.ProjectsPath}");
 Console.WriteLine($"  書き出し先    :  {config.ExportPath ?? "(ブラウザのダウンロード)"}");
 Console.WriteLine();
 
+watchdog.Start();
 app.Run(url);
 
 static void AddEntry(ZipArchive zip, string path, byte[] bytes)
