@@ -6,6 +6,11 @@ Effekseer をバックエンドにした、簡素なパーティクルエディ�
 Unity / Unreal Engine / Godot / Cocos2d-x / DXLib / WebGL など、Effekseer の
 各種ランタイムでそのまま再生できる。
 
+もともとは吉里吉里Z 用 Effekseer プラグイン
+[krkreffekseer](https://github.com/wamsoft/krkreffekseer) 向けの簡易素材を
+手早く作るために開発したもの。`.efkzip` の書き出しやプレビューの座標系は
+このプラグインに合わせてある (プラグイン無しの環境でも普通に使える)。
+
 参照した UI のスコープは ICS の [Particle Develop](https://ics-creative.github.io/project-particle-develop/)。
 
 ## 使い方
@@ -174,7 +179,7 @@ OS のテンポラリを使う (実行ファイルの隣を汚さない)。中�
 ## プレビューの座標系と画面枠
 
 プレビューは **1 ワールド単位 = 1 ピクセル / 画面中央が原点 / +Y が画面上方向**。
-これは吉里吉里プラグイン (`wamsoft_work/effekseer`) の既定と一致している
+これは吉里吉里プラグイン ([krkreffekseer](https://github.com/wamsoft/krkreffekseer)) の既定と一致している
 (`src/Effect.cpp` の `updateMatrices()`: 既定は平行投影 + `MakeOrthographicRH_OpenGL(proj, w, h, …)` で
 サーフェイスの幅高さをそのまま使い、カメラは原点正面・up = (0,1,0))。
 つまりエディタで見えている大きさ・位置がそのまま組み込み先のピクセル数になる。
@@ -285,7 +290,7 @@ Root
 ## アニメパターンの焼きかた
 
 ループを入れておくと、ヘッダの **アニメパターン…** からエフェクトを絵の連なりに焼ける。
-形式はシート PNG / 連番 PNG / `.amv` (吉里吉里の AlphaMovie プラグイン)。
+形式はシート PNG / 連番 PNG / `.amv` ([吉里吉里の AlphaMovie プラグイン](https://github.com/wamsoft/AlphaMovie))。
 
 **継ぎ目のないループになる。** 仕掛けは 3 手:
 
@@ -316,9 +321,9 @@ Root
 
 ### .amv (AlphaMovie) について
 
-吉里吉里の AlphaMovie プラグインが読むアルファ付き動画。書き出しは `AmvEncoder`。
-形式は `krkrz_dev/src/plugins/AlphaMovie/AlphaMovie.cpp` のデコーダ (オリジナル DLL の
-解析による再実装) に合わせてある。ふつうの JPEG とは違うところがあるので注意:
+吉里吉里の [AlphaMovie プラグイン](https://github.com/wamsoft/AlphaMovie) が読む
+アルファ付き動画。書き出しは `AmvEncoder`。形式は同プラグイン (再実装版) の
+`AlphaMovie.cpp` のデコーダ (オリジナル DLL の解析による再実装) に合わせてある。ふつうの JPEG とは違うところがあるので注意:
 
 - マーカーが一切無い。`SOI` も `DQT` も `DHT` も無く、エントロピー列がじかに入る。
   量子化テーブルはファイルヘッダに、ハフマンテーブルは標準表の決め打ち
@@ -507,7 +512,7 @@ motion/<名前>.json    軌道 1 本ぶん
 
 ### efkzip について
 
-吉里吉里プラグイン (`wamsoft_work/effekseer`) が読む形式。プラグインの実装
+吉里吉里プラグイン ([krkreffekseer](https://github.com/wamsoft/krkreffekseer)) が読む形式。プラグインの実装
 (`src/Effect.cpp` / `src/EffectZip.cpp`) に合わせてあり、要件は次の通り:
 
 - 素の ZIP。マニフェストは不要
