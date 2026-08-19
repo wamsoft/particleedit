@@ -1293,6 +1293,58 @@ async function receiveFile(res, fallbackName) {
 
 document.getElementById("btn-export").addEventListener("click", exportEffect);
 
+// ---------------------------------------------------------------- ゲームで再生
+//
+// particleedit.json に "game" (組み込み先の WebServer) が書いてあるときだけ出す。
+// 押すと **サーバが** 書き出し → ゲームへ「これを出して」と頼む。
+// ブラウザから直にゲームを叩くと CORS に当たるので、この順序でないと通らない。
+
+const playButton = document.getElementById("btn-play-game");
+const playWhere = document.getElementById("play-where");
+
+async function playInGame() {
+  const name = nameInput.value.trim();
+  const choice = playWhere.value;
+  const query = new URLSearchParams({
+    where: choice === "front" ? "screen" : choice,
+    front: choice === "front" ? "true" : "false",
+  });
+  if (name) query.set("name", name);
+
+  playButton.disabled = true;
+  setStatus("ゲームへ送っています…");
+  try {
+    const res = await fetch("/api/play?" + query, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(spec),
+    });
+    if (!res.ok) { setStatus("ゲームで再生できません: " + (await res.text()), true); return; }
+    const done = await res.json();
+    setStatus("ゲームで再生しました (" + done.path + ")");
+  } catch (e) {
+    setStatus("ゲームで再生できません: " + e.message, true);
+  } finally {
+    playButton.disabled = false;
+  }
+}
+
+playButton.addEventListener("click", playInGame);
+window.addEventListener("keydown", (e) => {
+  if (e.key === "F5" && !playButton.classList.contains("hidden")) {
+    e.preventDefault();
+    playInGame();
+  }
+});
+
+// 設定に "game" があるときだけボタンを出す (無い環境では邪魔にならないように)
+fetch("/api/config").then(r => r.json()).then(cfg => {
+  if (!cfg || !cfg.game) return;
+  playButton.classList.remove("hidden");
+  playWhere.classList.remove("hidden");
+  playButton.title = `${cfg.game} のゲーム画面に出して確かめる (F5)`;
+}).catch(() => {});
+
 // ---------------------------------------------------------------- プレビュー
 
 // エフェクトは「発生ノード + 粒ノード」の 2 段構成なので、粒 1 つにつき

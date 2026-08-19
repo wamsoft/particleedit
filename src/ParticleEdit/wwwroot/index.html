@@ -20,6 +20,15 @@
 
     <span class="spacer"></span>
 
+    <select id="play-where" class="hidden" title="ゲームのどこに出すか">
+      <option value="player">プレイヤーの足元</option>
+      <option value="select">選択セル</option>
+      <option value="screen">画面の中央</option>
+      <option value="front">画面の中央 (UI より手前)</option>
+    </select>
+    <button id="btn-play-game" type="button" class="hidden"
+            title="組み込み先のゲーム画面に出して確かめる (F5)">▶ ゲームで再生</button>
+
     <button id="btn-pattern" type="button" title="ループを絵の連なりに焼く">アニメパターン…</button>
     <select id="export-format" title="エクスポート形式">
       <option value="efkzip">efkzip (吉里吉里プラグイン用)</option>

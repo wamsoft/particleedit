@@ -39,11 +39,13 @@ app.MapGet("/Texture/{name}.png", (string name) =>
 	return bytes == null ? Results.NotFound() : Results.Bytes(bytes, "image/png");
 });
 
-// UI が知っておきたい設定 (書き出し先が決まっているかどうか)
+// UI が知っておきたい設定 (書き出し先が決まっているか / ゲームへ送れるか)
 app.MapGet("/api/config", () => new
 {
 	exportDirectory = config.ExportPath,
 	projectDirectory = config.ProjectsPath,
+	game = config.GameUrl,
+	gameDirectory = config.GameDirName,
 });
 
 // 形のプリセット一覧 (UI のボタン用)
@@ -176,12 +178,125 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 
 	if (effectEntry == null) return Results.BadRequest("unknown format");
 
+	return Deliver(PackZip(spec, result, effectEntry, effectBytes!), fileName!, "application/zip");
+});
+
+// ---------------------------------------------------------------- ゲームで再生
+// 組み込み先 (吉里吉里の rpgsys) へ efkzip を書き出し、**そのままゲーム画面に出させる**。
+// エディタの黒地ではなく実際のマップやメッセージ窓に重ねて見えるので、
+// 大きさと明るさの当たりを付けるのが早い。
+//
+// ブラウザから組み込み先を直に叩くと CORS に当たるため、**ここ (サーバ) から呼ぶ**。
+// 組み込み先の口は POST /ed/fx (rpgsys の docs/particleedit-port.md)。
+
+app.MapPost("/api/play", async (EffectSpec spec, string? name, string? where,
+                                double? mag, double? dur, bool? front) =>
+{
+	var game = config.GameUrl;
+	if (game == null)
+		return Results.BadRequest("particleedit.json の \"game\" が未設定です "
+			+ "(例: \"game\": \"http://127.0.0.1:8898\")");
+	var directory = config.ExportPath;
+	if (directory == null)
+		return Results.BadRequest("particleedit.json の \"export\" が未設定です "
+			+ "(ゲームが読める場所へ書き出す必要があります)");
+
+	var baseName = ProjectStore.IsValidName(name ?? "") ? name! : "preview";
+	var fileName = $"{baseName}.efkzip";
+	var gamePath = $"{config.GameDirName}/{fileName}";
+	Directory.CreateDirectory(directory);
+	var path = Path.Combine(directory, fileName);
+
+	using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+
+	async Task<(bool ok, string body)> Ask(object order)
+	{
+		var res = await http.PostAsync($"{game}/ed/fx",
+			new StringContent(JsonSerializer.Serialize(order), Encoding.UTF8, "application/json"));
+		var body = await res.Content.ReadAsStringAsync();
+		// ゲーム側は 200 でも {"ok":false,"error":"..."} を返す (素材が読めない等)
+		var ok = res.IsSuccessStatusCode
+		         && !body.Contains("\"ok\":false") && !body.Contains("\"ok\": false");
+		return (ok, body);
+	}
+
+	// **書き出す前に、ゲームにその素材を手放してもらう。**
+	// Effekseer は読み込んだ .efkzip を開いたまま持つので、掴まれたままだと
+	// ここの書き出しが「別のプロセスが使用中」で落ちる (実際に踏んだ)。
+	try
+	{
+		await Ask(new { op = "release", file = gamePath });
+	}
+	catch (Exception e)
+	{
+		return Results.BadRequest($"ゲームにつながりません ({game}): {e.Message}");
+	}
+
+	// 書き出し (エクスポートの efkzip と同じもの)
+	var result = EffectBuilder.Build(spec);
+	var bytes = PackZip(spec, result, $"{baseName}.efkefc", result.Efkefc);
+	try
+	{
+		await WriteWithRetry(path, bytes);
+	}
+	catch (IOException e)
+	{
+		return Results.BadRequest($"{fileName} を書き出せません ({e.Message})。"
+			+ "ゲームがこのファイルを掴んだままの可能性があります "
+			+ "(ゲーム側で「素材を読み直す」を押すか、ゲームを閉じてからもう一度)");
+	}
+
+	// ゲームへ「この素材をここに出して」と頼む。
+	// reload = 書き出し直したので読み直させる (前の内容が残らないように)
+	var order = new Dictionary<string, object?>
+	{
+		["file"] = gamePath,
+		["where"] = string.IsNullOrWhiteSpace(where) ? "player" : where,
+		["mag"] = mag ?? 1.0,
+		["front"] = front ?? false,
+		["reload"] = true,
+	};
+	if (dur is > 0) order["dur"] = dur;
+
+	try
+	{
+		var (ok, body) = await Ask(order);
+		if (!ok) return Results.BadRequest($"ゲームで再生できませんでした: {body}");
+		return Results.Ok(new { path, played = true });
+	}
+	catch (Exception e)
+	{
+		return Results.BadRequest($"ゲームにつながりません ({game}): {e.Message}。"
+			+ "書き出しだけは済んでいます: " + path);
+	}
+});
+
+// 掴まれていることがあるので少し粘る (ゲームが手放すまでの数十 ms を吸収する)
+static async Task WriteWithRetry(string path, byte[] bytes)
+{
+	for (var attempt = 0; ; attempt++)
+	{
+		try
+		{
+			await File.WriteAllBytesAsync(path, bytes);
+			return;
+		}
+		catch (IOException) when (attempt < 9)
+		{
+			await Task.Delay(50);
+		}
+	}
+}
+
+// efkzip の中身を組み立てる (書き出しと「ゲームで再生」で同じもの)
+byte[] PackZip(EffectSpec spec, BuildResult built, string effectEntry, byte[] effectBytes)
+{
 	using var ms = new MemoryStream();
 	using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
 	{
 		// エフェクト本体を先に入れる (プラグインは最初の .efkefc を本体とみなす)
-		AddEntry(zip, effectEntry, effectBytes!);
-		AddEntry(zip, result.TextureRelativePath, ShapeRenderer.GetPng(spec.Shape));
+		AddEntry(zip, effectEntry, effectBytes);
+		AddEntry(zip, built.TextureRelativePath, ShapeRenderer.GetPng(spec.Shape));
 
 		// 動的パラメータの名前と、軌道の一覧。組み込み先が要るときだけ入る。
 		if (!ExportManifest.IsEmpty(spec))
@@ -193,9 +308,8 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 			}
 		}
 	}
-
-	return Deliver(ms.ToArray(), fileName!, "application/zip");
-});
+	return ms.ToArray();
+}
 
 // ------------------------------------------------------ アニメパターンの書き出し
 // エフェクトを絵の連なりに焼いたもの。ループの周期が分かっていれば、
@@ -266,6 +380,8 @@ if (configNote != null) Console.WriteLine("  " + configNote);
 Console.WriteLine($"  ParticleEdit  ->  {url}");
 Console.WriteLine($"  プロジェクト  :  {config.ProjectsPath}");
 Console.WriteLine($"  書き出し先    :  {config.ExportPath ?? "(ブラウザのダウンロード)"}");
+if (config.GameUrl != null)
+	Console.WriteLine($"  ゲームで再生  :  {config.GameUrl}  (素材は {config.GameDirName}/ として渡す)");
 Console.WriteLine();
 
 watchdog.Start();

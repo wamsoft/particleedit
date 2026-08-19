@@ -46,6 +46,21 @@ public sealed class EditorConfig
 	/// </summary>
 	public string? Export { get; set; }
 
+	/// <summary>
+	/// 組み込み先 (吉里吉里のゲーム) の WebServer。設定すると
+	/// **「ゲームで再生」**が使える — 書き出したものをそのままゲーム画面に出して、
+	/// 実際の絵に重ねて確かめられる。例: "http://127.0.0.1:8898"。
+	/// 空なら書き出しだけ (ボタンも出ない)。
+	/// </summary>
+	public string? Game { get; set; }
+
+	/// <summary>
+	/// 組み込み先から見た素材フォルダ名。ゲームへ渡すパスは
+	/// "&lt;ここ&gt;/&lt;名前&gt;.efkzip" になる。
+	/// 空なら書き出し先のフォルダ名をそのまま使う (data/effect → "effect")。
+	/// </summary>
+	public string? GameDir { get; set; }
+
 	/// <summary>設定ファイルからの相対パスを絶対パスへ直したもの。</summary>
 	public string Root { get; private set; } = "";
 
@@ -56,6 +71,22 @@ public sealed class EditorConfig
 		? Path.Combine(Path.GetTempPath(), "ParticleEdit", "work")
 		: Resolve(Work);
 	public string? ExportPath => string.IsNullOrWhiteSpace(Export) ? null : Resolve(Export);
+
+	/// <summary>組み込み先の URL (末尾のスラッシュは落とす)。未設定なら null。</summary>
+	public string? GameUrl => string.IsNullOrWhiteSpace(Game) ? null : Game!.TrimEnd('/');
+
+	/// <summary>ゲームへ渡すパスの先頭 (既定は書き出し先のフォルダ名)。</summary>
+	public string GameDirName
+	{
+		get
+		{
+			if (!string.IsNullOrWhiteSpace(GameDir)) return GameDir!.Trim('/', '\\');
+			var export = ExportPath;
+			if (export == null) return "effect";
+			return Path.GetFileName(export.TrimEnd(Path.DirectorySeparatorChar,
+			                                       Path.AltDirectorySeparatorChar));
+		}
+	}
 
 	string Resolve(string path) => Path.GetFullPath(Path.Combine(Root, path));
 

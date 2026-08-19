@@ -35,6 +35,10 @@ header .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-lef
 
 .actions { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
 .actions .spacer { flex: 1 1 auto; }
+/* 狭い窓でもボタンの文字を折らない (「ゲームで再生」を足して混み合ったため。
+   はみ出すぶんはプロジェクト名の欄が縮んで吸収する) */
+.actions button, .actions select { white-space: nowrap; flex: 0 0 auto; }
+.actions input[type=text] { flex: 0 1 auto; min-width: 80px; }
 
 header input[type=text],
 header select {
@@ -201,6 +205,8 @@ footer .spacer { flex: 1 1 auto; }
   padding: 4px 0 40px;
 }
 .page.hidden { display: none; }
+/* ヘッダの「ゲームで再生」など、設定があるときだけ出すもの */
+header .hidden { display: none; }
 
 .group-title {
   padding: 12px 16px 4px;
