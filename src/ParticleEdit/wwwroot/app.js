@@ -165,6 +165,12 @@ const GROUPS = [
         help: "組み込み先が掛ける回転。反時計回り" },
     ],
   },
+  {
+    tab: "シーン", title: "並べて確かめる",
+    params: [
+      { type: "scene-editor" },
+    ],
+  },
 ];
 
 // パラメータは "shape.blur" のような入れ子のキーも取れるようにしておく
@@ -262,6 +268,10 @@ function buildPanel() {
       }
       if (p.type === "background-image") {
         page.appendChild(buildBackgroundEditor());
+        continue;
+      }
+      if (p.type === "scene-editor") {
+        page.appendChild(buildSceneEditor());   // scene.js
         continue;
       }
       if (p.type === "emitter-reset") {
@@ -501,6 +511,7 @@ function updateFrameGuide(zoom) {
     `translate(${marker.x * zoom}px, ${-marker.y * zoom}px)`;
 
   updateMotionPath(zoom);
+  updateSceneMarkers(zoom);
 }
 
 /// エフェクト内の座標を、再生側の配置 (位置・ズーム・回転) を掛けた後の座標へ直す。
@@ -1232,6 +1243,7 @@ async function saveProject() {
   if (!res.ok) { setStatus("保存に失敗: " + (await res.text()), true); return; }
 
   await refreshProjectList(name);
+  sceneOnProjectSaved(name);
   setStatus(`保存しました: ${name}`);
 }
 
@@ -1240,6 +1252,8 @@ async function loadProject(name) {
   if (!res.ok) { setStatus("読み込みに失敗: " + res.status, true); return; }
 
   const document_ = await res.json();
+  // シーンで別のものを編集中なら、それは背景へ回してから読む
+  sceneBeforeLoadProject(name);
   applySpec(document_.spec);
   nameInput.value = name;
   await rebuild();
@@ -1440,7 +1454,8 @@ function loadEffectOn(ctx, buffer) {
 /// 先に古い方を解放しないので、切り替えの瞬間もプレビューが途切れない。
 function swapEffect(next) {
   resetMotionClock();
-  context.stopAll();
+  // stopAll にすると、シーンで背景に流しているものまで止まる
+  if (handle) handle.stop();
   if (effect) context.releaseEffect(effect);
   effect = next;
   handle = context.play(effect, 0, 0, 0);
@@ -1470,6 +1485,7 @@ function clearToBackground() {
 /// 組み込み先がエフェクト全体に掛ける配置を真似る。
 /// 平行移動が既に出ている粒に効かないのに拡縮と回転は効く、といった差もここで見える。
 function applyPlacement() {
+  sceneSyncActive();
   if (!handle) return;
   const scale = Math.max(0.01, (spec.playZoom ?? 100) / 100);
   handle.setLocation(spec.playX ?? 0, spec.playY ?? 0, 0);
@@ -1488,6 +1504,7 @@ function step(w, h) {
   // 配置と発生位置は更新より前に入れる (更新時の値で 1 フレームぶんが決まるため)
   applyPlacement();
   const position = advanceMotion();
+  sceneBeforeUpdate();
   context.update(1.0);
   context.draw();
   return { zoom, position };
@@ -2483,6 +2500,7 @@ if (!gl) {
     } else {
       rebuild();
       requestAnimationFrame(frame);
+      restoreScene();
       if (location.hash === "#templates") openTemplates();
       if (location.hash === "#help") showHelp(true);
       if (location.hash === "#pattern") showPattern(true);

@@ -17,6 +17,7 @@ EffectBuilder.Initialize(config.WorkPath);
 ImageStore.Initialize(config.ImagesPath);
 var projects = new ProjectStore(config.ProjectsPath);
 var userTemplates = new ProjectStore(config.TemplatesPath);
+var scenes = new SceneStore(Path.Combine(config.ProjectsPath, "scenes"));
 
 // 使われなくなったら自分を畳む番人 (裏に残り続けないように)。
 // 心拍が途絶える / 標準入力が切れる、のどちらでも畳む。詳しくは Watchdog.cs。
@@ -179,6 +180,74 @@ app.MapPost("/api/export", (EffectSpec spec, string format, string? name) =>
 	if (effectEntry == null) return Results.BadRequest("unknown format");
 
 	return Deliver(PackZip(spec, result, effectEntry, effectBytes!), fileName!, "application/zip");
+});
+
+// ---------------------------------------------------------------- シーン
+// 保存済みのプロジェクトをいくつか並べたもの (SceneSpec.cs)。
+// 置き場はプロジェクトの下の scenes/。プロジェクトの一覧 (*.zip) とは混ざらない。
+
+app.MapGet("/api/scenes", () => scenes.List());
+
+app.MapGet("/api/scenes/{name}", (string name) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	var scene = scenes.Load(name);
+	return scene == null ? Results.NotFound() : Results.Ok(scene);
+});
+
+app.MapPut("/api/scenes/{name}", (string name, SceneSpec scene) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	scenes.Save(name, scene);
+	return Results.Ok();
+});
+
+app.MapDelete("/api/scenes/{name}", (string name) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	return scenes.Delete(name) ? Results.Ok() : Results.NotFound();
+});
+
+// シーンの書き出し。<name>.efkset と、並べたプロジェクトそれぞれの efkzip を出す。
+// efkzip は**保存済みのプロジェクトから**作る (ブラウザは書き出す前に保存を済ませてくる)。
+// 書き出し先が決まっていればそこへ並べて置き、無ければ 1 つの zip にしてダウンロードさせる。
+app.MapPost("/api/scenes/{name}/export", (string name, SceneSpec scene) =>
+{
+	if (!ProjectStore.IsValidName(name)) return Results.BadRequest("invalid name");
+	var items = EfksetWriter.Visible(scene);
+	if (items.Count == 0) return Results.BadRequest("書き出すエフェクトがありません (隠したものは書き出しません)");
+
+	var files = new List<(string fileName, byte[] bytes)>();
+	foreach (var project in items.Select(i => i.Project).Distinct())
+	{
+		if (!ProjectStore.IsValidName(project)) return Results.BadRequest($"プロジェクト名が不正です: {project}");
+		var document = projects.Load(project);
+		if (document == null) return Results.BadRequest($"プロジェクトが見つかりません: {project}");
+		var built = EffectBuilder.Build(document.Spec);
+		files.Add(($"{project}.efkzip", PackZip(document.Spec, built, $"{project}.efkefc", built.Efkefc)));
+	}
+	var setName = name + EfksetWriter.Extension;
+	files.Add((setName, EfksetWriter.Build(scene, name)));
+
+	var directory = config.ExportPath;
+	if (directory != null)
+	{
+		Directory.CreateDirectory(directory);
+		foreach (var (fileName, bytes) in files)
+			File.WriteAllBytes(Path.Combine(directory, fileName), bytes);
+		return Results.Ok(new
+		{
+			path = Path.Combine(directory, setName),
+			note = $"efkzip {files.Count - 1} 個も書き出しました",
+		});
+	}
+
+	using var ms = new MemoryStream();
+	using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+	{
+		foreach (var (fileName, bytes) in files) AddEntry(zip, fileName, bytes);
+	}
+	return Results.Bytes(ms.ToArray(), "application/zip", $"{name}.zip");
 });
 
 // ---------------------------------------------------------------- ゲームで再生

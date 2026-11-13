@@ -35,9 +35,11 @@ src/ParticleEdit/          エディタ本体 (ASP.NET Core minimal API)
   ShapeRenderer.cs         形からテクスチャを実行時に生成
   BuiltinTemplates.cs      組み込みテンプレート
   ProjectStore.cs          プロジェクト / ユーザーテンプレートの保存
+  SceneSpec.cs             シーン (保存したものを並べたもの) の保存と .efkset の書き出し
   Png.cs                   依存なしの最小 PNG エンコーダ
   Watchdog.cs              使われなくなったら自分で畳む番人 (裏に残らないように)
   wwwroot/                 UI (素の HTML/CSS/JS) と effekseer.js ランタイム
+    scene.js               「シーン」タブ (app.js より先に読む)
 third_party/EffekseerCore/ Effekseer 公式エディタのコア (MIT, 無改変)
 ```
 
@@ -469,6 +471,43 @@ Texture/*.png   そのプロジェクトが使っているテクスチャ
 無い値がある (画面枠、形状の定義) といったあたりが理由。
 編集を再開するための状態はこの形式でしか持てない。
 
+## シーン (並べて確かめる)
+
+「シーン」タブで、保存したプロジェクトをいくつか並べて 1 つの画面での見えかたを確かめる。
+1 場面に 2 つ 3 つのエフェクトを重ねるときに、エディタの中で全体を見ながら調整するためのもの。
+
+- 並べたうちの 1 つが**アクティブ**。いつものつまみはそれを編集し、ほかは同じ
+  EffekseerContext の中で背景として流れ続ける (プレビューの `stopAll` をやめて、
+  差し替えはアクティブのハンドルだけを止めるようにしてある)
+- アクティブの配置は「再生側の操作」(`playX` / `playY` / `playZoom` / `playRotation`) と同じ値。
+  シーン側は**ゲームの画面と同じ流儀** (中央原点・Y 下向き・時計回り) で持ち、行き来で符号を直す
+- 切り替えると、編集途中の状態をそのまま持って背景へ回る。保存はシーンの保存でまとめて行う
+  (変更の有無は見た目だけの値を除いたパラメータで比べる)。シーンから保存するときは
+  再生側の操作を既定値に戻して保存する (プロジェクト単体で開いたときに配置が残らないように)
+- 開始の遅れはプレビューでは 1 フレーム = 1/60 秒で数える。ループで流し直すときは遅れを掛けず、
+  軌道も続きから回す (どちらもゲーム側の再生と同じ)
+
+保存先は `<projects>/scenes/<名前>.json`。プロジェクトの一覧 (`*.zip`) とは混ざらない。
+
+**シーンを書き出す**と `<名前>.efkset` と、並べたプロジェクトそれぞれの `.efkzip` が出る
+(efkzip は保存済みのプロジェクトから作るので、書き出す前に変更を保存させている)。
+`.efkset` は吉里吉里プラグイン側の「エフェクトの並び」で、TJS の辞書 (UTF-8 BOM 付き) で書く。
+ゲームは `Scripts.evalStorage` で読むので、JSON にはしていない (json.dll を出荷物に足さずに済む)。
+書式の正本はゲーム側の `AffineSourceEffekseerSet.tjs` の先頭。
+
+```
+%[
+	"version" => 1,
+	"width" => 1280, "height" => 720,
+	"items" => [
+		%[ "name" => "spark", "file" => "spark.efkzip", "x" => -300, "y" => 150 ],
+		%[ "name" => "trail", "file" => "trail.efkzip", "x" => 300, "y" => -120, "delay" => 500, "motion" => "circle" ]
+	]
+]
+```
+
+隠したもの (一覧のチェックを外したもの) は書き出さない。
+
 ## ゲームで再生
 
 組み込み先のゲームを立ち上げたまま、**作っている粒をそのゲームの画面に出して**
@@ -578,6 +617,8 @@ motion/<名前>.json    軌道 1 本ぶん
 
 - `POST /api/debug` … パラメータを渡すと、組み上がった Effekseer 側の値をテキストで返す
 - `POST /api/effect.efk?cycle=one` … ループの 1 周期ぶんだけ発生するものを返す (アニメパターン用)
+- `GET/PUT/DELETE /api/scenes/{name}` … シーンの保存 (`GET /api/scenes` で一覧)
+- `POST /api/scenes/{name}/export` … シーンを `.efkset` + 並べたものの efkzip で書き出す
 - `POST /api/pattern` … 焼いたコマを受け取って書き出す。body は
   `[JSON の長さ (4 バイト LE)] [注文の JSON] [コマ...]`、コマは左上原点・アルファ非乗算の RGBA
 - `http://localhost:5188/#templates` … テンプレート一覧を開いた状態で起動する
